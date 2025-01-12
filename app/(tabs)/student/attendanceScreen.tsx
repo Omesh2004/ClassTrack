@@ -10,11 +10,9 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore';
-
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-
 // Firebase configuration
 const firebaseConfig = {
   apiKey: 'AIzaSyATZSCZdADIJGYJcnd58Cwg9S9bV2yFYnE',

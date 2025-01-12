@@ -88,8 +88,8 @@ const AuthScreen = ({ email, setEmail, password, setPassword, isLogin, setIsLogi
 };
 interface AuthenticatedScreenProps {
   user: {
-    name: string;
-    email: string;
+    name?: string;
+    email: string|null;
     uid: string;
     // Add other user fields as needed
   };
