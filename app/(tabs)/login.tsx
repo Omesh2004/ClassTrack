@@ -71,6 +71,7 @@ const AuthScreen = ({ email, setEmail, password, setPassword, isLogin, setIsLogi
             <Picker.Item label="Select Role" value="" />
             <Picker.Item label="Student" value="Student" />
             <Picker.Item label="Admin" value="Admin" />
+            <Picker.Item label="Super-Admin" value="Super-Admin" />
           </Picker>
         </>
       )}
@@ -109,7 +110,12 @@ const AuthenticatedScreen : React.FC<AuthenticatedScreenProps> = ({ user, handle
       if (role === 'Admin') {
         router.push('/admin/year'); // Redirect teachers
       } else if (role === 'Student') {
-        router.push('/student'); // Redirect students
+        router.push('/Student'); // Redirect students
+      }
+      else if (role === 'Super-Admin') {
+        console.log(role);
+        router.push('/superadmin');
+         // Redirect superadmin
       }
     }
     // Ensure this path is correct for navigation

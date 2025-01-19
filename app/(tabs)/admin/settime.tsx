@@ -2,11 +2,32 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { db, setDoc, doc } from '../../../utils/firebaseConfig';
-import { useRouter } from 'expo-router';
+import * as Location from "expo-location";
 
 const SetTimeScreen: React.FC = () => {
   const { course } = useLocalSearchParams(); // Retrieve course name from URL
   const [time, setTime] = useState(''); // State to store the class time
+  const [location, setLocation] = useState<{ lat: number; long: number } | null>(null); // State for location
+
+  // Function to fetch location
+  const askForLocationPermission = async (): Promise<{ lat: number; long: number } | null> => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Denied", "Location access was denied.");
+        return null;
+      }
+
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = location.coords;
+
+      console.log("Fetched Location:", { latitude, longitude }); // Debug logging
+      return { lat: latitude, long: longitude };
+    } catch (error) {
+      console.error("Error getting location:", error);
+      return null;
+    }
+  };
 
   // Validate and sanitize the course parameter
   const getSanitizedCourse = () => {
@@ -29,26 +50,36 @@ const SetTimeScreen: React.FC = () => {
       return;
     }
 
+    // Fetch the admin's location
+    const fetchedLocation = await askForLocationPermission();
+    if (!fetchedLocation) {
+      Alert.alert("Error", "Failed to fetch location. Please try again.");
+      return;
+    }
+
+    const { lat, long } = fetchedLocation;
+
     try {
       // Create a reference to the course document in Firestore
       const courseDocRef = doc(db, 'courses', sanitizedCourse);
-      // Save class time to Firestore
+      // Save class time and location to Firestore
       await setDoc(courseDocRef, {
         classTime: time,
+        FIXED_LATITUDE: lat,
+        FIXED_LONGITUDE: long,
       });
 
       // Success alert
       Alert.alert(
         'Success',
-        `Class time for ${sanitizedCourse} has been set to ${time}.`,
+        `Class time for ${sanitizedCourse} has been set to ${time}. Location saved.`,
         [
           {
             text: 'OK',
-            onPress: () => router.push('/'), // Navigate back to the index page
+            onPress: () => router.push('/admin/courses'), // Navigate back to the index page
           },
         ]
       );
-
     } catch (error) {
       console.error('Error saving class time:', error);
       Alert.alert('Error', 'Failed to save the class time. Please try again later.');
