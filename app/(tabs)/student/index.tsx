@@ -42,7 +42,7 @@ const StudentHome: React.FC = () => {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.notification}
-            onPress={() => router.push(`/student/attendanceScreen?course=${item.id}`)}
+            onPress={() => router.push(`/Student/attendanceScreen?course=${item.id}`)}
           >
             <Text style={styles.courseName}>{item.id}</Text>
             <Text>Class Time: {item.classTime}</Text>
