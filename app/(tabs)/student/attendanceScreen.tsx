@@ -15,6 +15,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import * as Location from "expo-location";
+import { useAuth } from '@/hooks/useAuth';
 
 const RADIUS = 80;
 
@@ -38,11 +39,12 @@ const AttendanceScreen: React.FC = () => {
   const [dist, setDist] = useState(0);
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const { course } = useLocalSearchParams();
+  const { course, year, semester } = useLocalSearchParams();
   const [fixedLocation, setFixedLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  const { user } = useAuth();
 
   const calculateDistance = (
     lat1: number,
@@ -51,7 +53,7 @@ const AttendanceScreen: React.FC = () => {
     lon2: number
   ) => {
     const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-    const R = 6371e3; // Earth radius in meters
+    const R = 6371e3;
     const φ1 = toRadians(lat1);
     const φ2 = toRadians(lat2);
     const Δφ = toRadians(lat2 - lat1);
@@ -60,19 +62,27 @@ const AttendanceScreen: React.FC = () => {
       Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
       Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in meters
+    return R * c;
   };
 
   const fetchFixedLocation = async () => {
     try {
-      const courseDocRef = doc(db, "courses", course as string);
+      console.log("Fetching fixed location for course:", course);
+      // Correct document path using year and semester from params
+      const courseDocRef = doc(
+        db, 
+        `years/${year}/semesters/${semester}/courses`, 
+        course as string
+      );
+      
       const courseDoc = await getDoc(courseDocRef);
-
+  
       if (courseDoc.exists()) {
         const data = courseDoc.data();
+        console.log("Course document found:", data);
         const latitude = data.FIXED_LATITUDE;
         const longitude = data.FIXED_LONGITUDE;
-
+  
         if (latitude !== undefined && longitude !== undefined) {
           setFixedLocation({ latitude, longitude });
           console.log("Fixed Coordinates Updated:", { latitude, longitude });
@@ -80,6 +90,7 @@ const AttendanceScreen: React.FC = () => {
           console.error("FIXED_LATITUDE and/or FIXED_LONGITUDE not found.");
         }
       } else {
+        console.log("Course document not found at path:", courseDocRef.path);
         Alert.alert("Error", "Course document does not exist.");
       }
     } catch (error) {
@@ -106,13 +117,8 @@ const AttendanceScreen: React.FC = () => {
           fixedLocation.longitude
         );
 
-        console.log("Fetched Location:", { latitude, longitude, distance }); // Debug logging
-
-        return {
-          lat: latitude,
-          long: longitude,
-          dist: distance,
-        }; // Return object
+        console.log("Fetched Location:", { latitude, longitude, distance });
+        return { lat: latitude, long: longitude, dist: distance };
       } else {
         console.error("Fixed location is not available.");
         return -1;
@@ -126,22 +132,42 @@ const AttendanceScreen: React.FC = () => {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const currentUser = auth.currentUser;
+        if (!user) {
+          // Fallback to direct auth check
+          const currentUser = auth.currentUser;
+          if (!currentUser) {
+            console.log("No user found in either hook or direct auth");
+            Alert.alert("Error", "No user is currently logged in.");
+            return;
+          }
+          
+          // Use the direct auth user
+          const usersRef = collection(db, "users");
+          const q = query(usersRef, where("email", "==", currentUser.email));
+          const querySnapshot = await getDocs(q);
 
-        if (!currentUser) {
-          Alert.alert("Error", "No user is currently logged in.");
-          return;
-        }
-
-        const usersRef = collection(db, "users");
-        const q = query(usersRef, where("email", "==", currentUser.email));
-        const querySnapshot = await getDocs(q);
-
-        if (!querySnapshot.empty) {
-          const user = querySnapshot.docs[0].data();
-          setUserData(user);
+          if (!querySnapshot.empty) {
+            const userData = querySnapshot.docs[0].data();
+            console.log("User data found:", userData);
+            setUserData(userData);
+          } else {
+            console.log("No user document found for email:", currentUser.email);
+            Alert.alert("Error", "User data not found in Firestore.");
+          }
         } else {
-          Alert.alert("Error", "User data not found in Firestore.");
+          // Use the hook's user
+          console.log("Using hook user:", user.uid);
+          const userRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            console.log("User data found:", userData);
+            setUserData(userData);
+          } else {
+            console.log("No user document found for uid:", user.uid);
+            Alert.alert("Error", "User data not found in Firestore.");
+          }
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -152,41 +178,42 @@ const AttendanceScreen: React.FC = () => {
     };
 
     fetchUserData();
-    fetchFixedLocation(); // Fetch fixed location on mount
-  }, []);
-
+    fetchFixedLocation();
+  }, [user]);
   const handleAttendance = async (status: "Present" | "Absent") => {
     try {
       if (!userData || !fixedLocation) {
         Alert.alert("Error", "Data is not available. Please try again later.");
         return;
       }
-
+  
       const locationData = await askForLocationPermission();
-      if (locationData === -1) {
-        return; // Permission denied or error
-      }
-
+      if (locationData === -1) return;
+  
       const { lat, long, dist } = locationData;
-      let p=0;
-      const courseDocRef = doc(db, "courses", course as string);
-      if(dist<80)
-       p=1;
-      else
-      p=0; 
-console.log(p);
+      const p = dist < RADIUS ? 1 : 0;
+      console.log("Attendance status:", { status, distance: dist, withinRadius: p });
+  
+      // Update the correct course document path
+      const courseDocRef = doc(
+        db,
+        `years/${year}/semesters/${semester}/courses`,
+        course as string
+      );
+      
       await updateDoc(courseDocRef, {
         attendance: arrayUnion({
           studentName: userData.name,
+          studentId: user?.uid || auth.currentUser?.uid,
           latitude: lat,
           longitude: long,
           distance: dist,
           status,
-          in:p,
+          in: p,
           timestamp: new Date().toISOString(),
         }),
       });
-
+  
       Alert.alert("Success", `You have been marked as ${status}.`);
     } catch (error) {
       console.error("Error updating attendance:", error);

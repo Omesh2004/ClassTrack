@@ -1,5 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, 
+import { getAuth } from 'firebase/auth';
+// import { getFirestore } from 'firebase/firestore';
+import { 
+  getFirestore, 
   doc, 
   setDoc, 
   getDoc, 
@@ -9,7 +12,10 @@ import { getFirestore,
   deleteDoc, 
   query, 
   where,
-arrayUnion , } from 'firebase/firestore'; // Import Firestore functions
+  arrayUnion,
+  arrayRemove,
+  addDoc // Import addDoc here
+} from 'firebase/firestore'; // Import Firestore functions
 
 // Your Firebase config
 const firebaseConfig = {
@@ -21,10 +27,11 @@ const firebaseConfig = {
   appId: "1:47121417247:web:1e086ee27fe10c20e9412a",
   measurementId: "G-SMF4LTTV59"
 };
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
+const auth = getAuth(app);
 // Initialize Firestore
 const db = getFirestore(app);
 
-export { db, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc, query, where, arrayUnion };
+export { db, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc, arrayRemove, query, where, arrayUnion, addDoc, auth }; // Add addDoc here

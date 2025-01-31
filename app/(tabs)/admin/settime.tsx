@@ -1,126 +1,112 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { db, setDoc, doc } from '../../../utils/firebaseConfig';
-import * as Location from "expo-location";
+import { db, setDoc, doc } from '@/utils/firebaseConfig';
+import * as Location from 'expo-location';
 
 const SetTimeScreen: React.FC = () => {
-  const { course } = useLocalSearchParams(); // Retrieve course name from URL
-  const [time, setTime] = useState(''); // State to store the class time
-  const [location, setLocation] = useState<{ lat: number; long: number } | null>(null); // State for location
+  // Extract query params from the URL
+  const params = useLocalSearchParams();
+  const { course, courseId, courseCode, year, semester } = params || {};
 
-  // Function to fetch location
-  const askForLocationPermission = async (): Promise<{ lat: number; long: number } | null> => {
+  // State for class time and location
+  const [time, setTime] = useState('');
+  const [location, setLocation] = useState<{ lat: number; long: number } | null>(null);
+
+  // Debugging: Log the received params
+  useEffect(() => {
+    console.log('📌 Received Params:', params);
+    if (!year || !semester) {
+      console.error('❌ Missing year or semester:', { year, semester });
+      Alert.alert('Error', 'Missing year or semester. Please navigate from the correct page.');
+    }
+  }, []);
+
+  // Function to request location permission and fetch GPS coordinates
+  const askForLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission Denied", "Location access was denied.");
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location access was denied.');
         return null;
       }
-
       const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
-
-      console.log("Fetched Location:", { latitude, longitude }); // Debug logging
-      return { lat: latitude, long: longitude };
+      return { lat: location.coords.latitude, long: location.coords.longitude };
     } catch (error) {
-      console.error("Error getting location:", error);
+      console.error('❌ Error getting location:', error);
       return null;
     }
   };
 
-  // Validate and sanitize the course parameter
-  const getSanitizedCourse = () => {
-    if (!course || (Array.isArray(course) && course.length === 0)) {
-      Alert.alert('Error', 'Invalid course selected. Please try again.');
-      return null;
-    }
-    const selectedCourse = Array.isArray(course) ? course[0] : course;
-    return selectedCourse?.replace(/[^a-zA-Z0-9_-]/g, ''); // Sanitize course name
-  };
-
+  // Function to handle saving the class time
   const handleSaveTime = async () => {
     if (!time) {
-      Alert.alert('Error', 'Please set a time for the class.');
+      Alert.alert('Error', 'Please enter a valid class time.');
       return;
     }
 
-    const sanitizedCourse = getSanitizedCourse();
-    if (!sanitizedCourse) {
+    if (!year || !semester || !courseId) {
+      console.error('❌ Missing required parameters:', { year, semester, courseId });
+      Alert.alert('Error', 'Invalid parameters. Please navigate from the correct page.');
       return;
     }
 
-    // Fetch the admin's location
     const fetchedLocation = await askForLocationPermission();
     if (!fetchedLocation) {
-      Alert.alert("Error", "Failed to fetch location. Please try again.");
+      Alert.alert('Error', 'Failed to fetch location. Please try again.');
       return;
     }
 
-    const { lat, long } = fetchedLocation;
-
     try {
-      // Create a reference to the course document in Firestore
-      const courseDocRef = doc(db, 'courses', sanitizedCourse);
-      // Save class time and location to Firestore
-      await setDoc(courseDocRef, {
-        classTime: time,
-        FIXED_LATITUDE: lat,
-        FIXED_LONGITUDE: long,
-      });
+      // Firestore document path: /years/{year}/semesters/{semester}/courses/{courseId}
+      const courseDocRef = doc(db, 'years', year as string, 'semesters', semester as string, 'courses', courseId as string);
+      console.log('🗄️ Firestore Path:', `years/${year}/semesters/${semester}/courses/${courseId}`);
 
-      // Success alert
+      // Save class time and location to Firestore
+      await setDoc(
+        courseDocRef,
+        {
+          classTime: time,
+          FIXED_LATITUDE: fetchedLocation.lat,
+          FIXED_LONGITUDE: fetchedLocation.long,
+        },
+        { merge: true }
+      );
+
+      // Success alert and redirect
       Alert.alert(
         'Success',
-        `Class time for ${sanitizedCourse} has been set to ${time}. Location saved.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => router.push('/admin/courses'), // Navigate back to the index page
-          },
-        ]
+        `Class time for ${courseCode} (${course}) has been set to ${time}. Location saved.`,
+        [{ text: 'OK', onPress: () => router.push(`/admin/courses?year=${year}&semester=${semester}`) }]
       );
     } catch (error) {
-      console.error('Error saving class time:', error);
+      console.error('❌ Error saving class time:', error);
       Alert.alert('Error', 'Failed to save the class time. Please try again later.');
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Set Time for {course}</Text>
+      <Text style={styles.title}>Set Time for {course || 'Unknown Course'}</Text>
       <TextInput
         style={styles.input}
         placeholder="Enter class time (e.g., 10:00 AM)"
         value={time}
         onChangeText={setTime}
       />
-      <Button title="Save Time" onPress={handleSaveTime} />
+      <TouchableOpacity style={styles.button} onPress={handleSaveTime}>
+        <Text style={styles.buttonText}>Save Time</Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  input: {
-    width: '100%',
-    height: 40,
-    borderColor: 'gray',
-    borderWidth: 1,
-    marginBottom: 16,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-  },
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16, backgroundColor: '#f5f5f5' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, color: '#333' },
+  input: { width: '100%', height: 50, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 16, marginBottom: 20, backgroundColor: '#fff' },
+  button: { width: '100%', height: 50, backgroundColor: '#007AFF', borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
 
 export default SetTimeScreen;

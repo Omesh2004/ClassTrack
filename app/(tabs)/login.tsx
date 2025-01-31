@@ -110,7 +110,7 @@ const AuthenticatedScreen : React.FC<AuthenticatedScreenProps> = ({ user, handle
       if (role === 'Admin') {
         router.push('/admin/year'); // Redirect teachers
       } else if (role === 'Student') {
-        router.push('/Student'); // Redirect students
+        router.push('/student'); // Redirect students
       }
       else if (role === 'Super-Admin') {
         console.log(role);
