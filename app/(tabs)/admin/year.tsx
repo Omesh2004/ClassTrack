@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { db, collection, getDocs } from '@/utils/firebaseConfig';
 
 interface Year {
@@ -63,6 +63,8 @@ const YearScreen: React.FC = () => {
       ) : (
         <Text style={styles.emptyText}>No years available</Text>
       )}
+      <Link href="/admin/attendancedaily" style={styles.buttonAttendance}> <Text>SEE ATTENDANCE</Text></Link>
+      <Link href="/login" style={styles.buttonAttendance}> <Text>Go Back</Text></Link>
     </View>
   );
 };
@@ -73,6 +75,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f9f9f9',
+  },
+  buttonAttendance: {
+    backgroundColor: '#007BFF',
+    padding: 15,
+    borderRadius: 10,
+    marginVertical: 10,
+    width: '80%',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#fff',
   },
   title: {
     fontSize: 24,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 
 const SuperAdminHome = () => {
   const router = useRouter();
@@ -8,7 +8,7 @@ const SuperAdminHome = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Super Admin Dashboard</Text>
+        <Link href="../test"><Text style={styles.title}>Super Admin Dashboard</Text></Link>
         
         <TouchableOpacity 
           style={[styles.card, styles.academicsCard]} 
@@ -28,7 +28,9 @@ const SuperAdminHome = () => {
           <Text style={styles.cardDescription}>
             View and manage student records
           </Text>
+
         </TouchableOpacity>
+        
       </View>
     </SafeAreaView>
   );

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Button } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { db, collection, getDocs, doc, getDoc } from '@/utils/firebaseConfig';
 
@@ -95,6 +95,7 @@ const CourseScreen: React.FC = () => {
           <Text style={styles.emptyText}>No courses available.</Text>
         }
       />
+     
     </View>
   );
 };

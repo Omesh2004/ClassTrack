@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, ScrollView,Platform} from 'react-native';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { v4 as uuidv4 } from 'uuid';
+import * as Application from 'expo-application';
 // Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyATZSCZdADIJGYJcnd58Cwg9S9bV2yFYnE",
@@ -15,7 +18,49 @@ const firebaseConfig = {
   appId: "1:47121417247:web:1e086ee27fe10c20e9412a",
   measurementId: "G-SMF4LTTV59"
 };
+const getUniqueId = async () => {
+  try {
+    let storedId = await AsyncStorage.getItem('deviceUniqueId');
 
+    if (!storedId) {
+      if (Platform.OS === 'web') {
+        storedId = localStorage.getItem('deviceUniqueId') || uuidv4();
+        localStorage.setItem('deviceUniqueId', storedId);
+      } else if (Platform.OS === 'android') {
+        storedId = Application.androidId || uuidv4();
+      } else if (Platform.OS === 'ios') {
+        storedId = await SecureStore.getItemAsync('deviceUniqueId');
+        if (!storedId) {
+          storedId = uuidv4();
+          await SecureStore.setItemAsync('deviceUniqueId', storedId);
+        }
+      }
+
+      await AsyncStorage.setItem('deviceUniqueId', storedId);
+    }
+
+    return storedId;
+  } catch (error) {
+    console.error('Error generating device ID:', error);
+    return 'error-id';
+  }
+};
+const storeDeviceIdInFirestore = async (deviceId: string) => {
+    try {
+      const deviceType = Platform.OS; // ios, android, or web
+      const docRef = doc(firestore, 'devices', deviceId); // Store ID as document name
+  
+      await setDoc(docRef, {
+        deviceId,
+        deviceType,
+        timestamp: new Date().toISOString(),
+      });
+  
+      console.log('Device ID stored in Firestore:', deviceId);
+    } catch (error) {
+      console.error('Error storing device ID:', error);
+    }
+  };
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -110,7 +155,7 @@ const AuthenticatedScreen : React.FC<AuthenticatedScreenProps> = ({ user, handle
       if (role === 'Admin') {
         router.push('/admin/year'); // Redirect teachers
       } else if (role === 'Student') {
-        router.push('/student'); // Redirect students
+        router.push('/(tabs)/Student'); // Redirect students
       }
       else if (role === 'Super-Admin') {
         console.log(role);
@@ -156,23 +201,53 @@ export default function App() {
         console.log('User signed out successfully');
       } else {
         if (isLogin) {
-          // Sign in
-          await signInWithEmailAndPassword(auth, email, password);
-          console.log('User signed in successfully');
+          // Sign in flow: Verify the device ID only if the user is a Student
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          const loggedInUser = userCredential.user;
+  
+          // Retrieve user data
+          const userRef = doc(firestore, 'users', loggedInUser.uid);
+          const userDoc = await getDoc(userRef);
+  
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const role = userData.role; // Get user role
+            const storedDeviceId = userData.deviceId; // Stored Device ID
+            const currentDeviceId = await getUniqueId(); // Current Device ID
+  
+            console.log(`User Role: ${role}`);
+            console.log(`Stored Device ID: ${storedDeviceId}`);
+            console.log(`Current Device ID: ${currentDeviceId}`);
+  
+            if (role === 'Student' && storedDeviceId !== currentDeviceId) {
+              // Prevent login if the user is a student and device ID does not match
+              await signOut(auth);
+              setAuthError('Login failed: Unauthorized device.');
+              return;
+            }
+  
+            console.log('User signed in successfully');
+          } else {
+            setAuthError('User data not found.');
+          }
         } else {
-          // Sign up
+          // Sign up flow: Generate and store a unique device ID
           const userCredential = await createUserWithEmailAndPassword(auth, email, password);
           const newUser = userCredential.user;
-          console.log('User created successfully:', newUser.uid);
-
-          // Store additional user data in Firestore
+  
+          const deviceId = await getUniqueId(); // Generate Device ID
+          console.log('Generated Device ID:', deviceId);
+  
+          // Store user data along with device ID in Firestore
           const userRef = doc(firestore, 'users', newUser.uid);
           await setDoc(userRef, {
             uid: newUser.uid,
             name,
             role,
-            email
+            email,
+            deviceId, // Store the device ID
           });
+  
           console.log('User data stored in Firestore');
         }
       }
@@ -185,6 +260,7 @@ export default function App() {
       }
     }
   };
+  
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

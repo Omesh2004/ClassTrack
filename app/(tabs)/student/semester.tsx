@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { db, collection, getDocs, doc, updateDoc } from '@/utils/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
-import styles from '@/app/(tabs)/student/styles';
+import styles from './styles';
 
 interface Semester {
   id: string;
@@ -46,7 +46,7 @@ const StudentSemesterScreen: React.FC = () => {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, { semester: semesterId });
     }
-    router.push(`/student/courses?year=${year}&semester=${semesterId}`);
+    router.push(`/Student/courses?year=${year}&semester=${semesterId}`);
   };
 
   if (loading) {

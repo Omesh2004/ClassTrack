@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Button, Alert, StyleSheet } from "react-native";
+import { View, Text, Button, Alert, StyleSheet,Platform } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
   updateDoc,
@@ -10,12 +10,20 @@ import {
   where,
   getDocs,
   getDoc,
+  setDoc,
 } from "firebase/firestore";
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import * as Location from "expo-location";
 import { useAuth } from '@/hooks/useAuth';
+
+
+
+import { v4 as uuidv4 } from 'uuid';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Application from 'expo-application';
+
 
 const RADIUS = 80;
 
@@ -36,6 +44,15 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const AttendanceScreen: React.FC = () => {
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+      
+        useEffect(() => {
+          const fetchDeviceId = async () => {
+            const id = await getUniqueId();
+            setDeviceId(id);
+          };
+          fetchDeviceId();
+        }, []);
   const [dist, setDist] = useState(0);
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +114,7 @@ const AttendanceScreen: React.FC = () => {
       console.error("Error fetching fixed location:", error);
     }
   };
-
+  
   const askForLocationPermission = async (): Promise<any> => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -180,47 +197,130 @@ const AttendanceScreen: React.FC = () => {
     fetchUserData();
     fetchFixedLocation();
   }, [user]);
-  const handleAttendance = async (status: "Present" | "Absent") => {
+  const getUniqueId = async () => {
     try {
-      if (!userData || !fixedLocation) {
-        Alert.alert("Error", "Data is not available. Please try again later.");
-        return;
+      let storedId = await AsyncStorage.getItem('deviceUniqueId');
+  
+      if (!storedId) {
+        if (Platform.OS === 'web') {
+          storedId = localStorage.getItem('deviceUniqueId') || uuidv4();
+          localStorage.setItem('deviceUniqueId', storedId);
+        } else if (Platform.OS === 'android') {
+          storedId = Application.androidId || uuidv4();
+        } else if (Platform.OS === 'ios') {
+          storedId = await SecureStore.getItemAsync('deviceUniqueId');
+          if (!storedId) {
+            storedId = uuidv4();
+            await SecureStore.setItemAsync('deviceUniqueId', storedId);
+          }
+        }
+  
+        await AsyncStorage.setItem('deviceUniqueId', storedId);
       }
   
-      const locationData = await askForLocationPermission();
-      if (locationData === -1) return;
-  
-      const { lat, long, dist } = locationData;
-      const p = dist < RADIUS ? 1 : 0;
-      console.log("Attendance status:", { status, distance: dist, withinRadius: p });
-  
-      // Update the correct course document path
-      const courseDocRef = doc(
-        db,
-        `years/${year}/semesters/${semester}/courses`,
-        course as string
-      );
-      
-      await updateDoc(courseDocRef, {
-        attendance: arrayUnion({
-          studentName: userData.name,
-          studentId: user?.uid || auth.currentUser?.uid,
-          latitude: lat,
-          longitude: long,
-          distance: dist,
-          status,
-          in: p,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-  
-      Alert.alert("Success", `You have been marked as ${status}.`);
+      return storedId;
     } catch (error) {
-      console.error("Error updating attendance:", error);
-      Alert.alert("Error", "Failed to mark attendance. Please try again.");
+      console.error('Error generating device ID:', error);
+      return 'error-id';
     }
   };
 
+  
+  const storeDeviceIdInFirestore = async (deviceId: string) => {
+    try {
+      const deviceType = Platform.OS; // ios, android, or web
+      const docRef = doc(db, 'devices', deviceId); // Store ID as document name
+  
+      await setDoc(docRef, {
+        deviceId,
+        deviceType,
+        timestamp: new Date().toISOString(),
+      });
+  
+      console.log('Device ID stored in Firestore:', deviceId);
+    } catch (error) {
+      console.error('Error storing device ID:', error);
+    }
+  };
+  
+const handleAttendance = async (status: "Present" | "Absent") => {
+    try {
+        // More robust null checks
+        if (!userData?.name || !user?.uid || !fixedLocation) {
+            Alert.alert("Error", "User data or location is incomplete.");
+            return;
+        }
+
+        // More explicit location permission handling
+        const locationData = await askForLocationPermission();
+        if (!locationData) {
+            Alert.alert("Error", "Location permission denied.");
+            return;
+        }
+
+        const { lat, long, dist } = locationData;
+        
+        // Ensure RADIUS is defined and validated
+        if (typeof RADIUS !== 'number') {
+            throw new Error("RADIUS is not properly defined");
+        }
+
+        const isWithinRadius = dist < RADIUS;
+        console.log("Attendance status:", { 
+            status, 
+            distance: dist, 
+            withinRadius: isWithinRadius 
+        });
+
+        // Generate today's date INSIDE the function to ensure it's current
+        const today = (() => {
+          const local = new Date();
+          return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+        })();
+        console.log("Today's date:", today);
+
+        // More robust path construction
+        const attendanceDocRef = doc(
+            db,
+            `years/${year}/semesters/${semester}/courses/${course}/attendance/${today}`
+        );
+
+        // Type-safe student record
+        const studentRecord = {
+            studentName: userData.name,
+            studentId: user.uid || auth.currentUser?.uid,
+            latitude: lat,
+            longitude: long,
+            distance: dist,
+            status,
+            in: isWithinRadius ? 1 : 0,
+            timestamp: new Date().toISOString(), // This ensures a fresh timestamp
+        };
+
+        // Ensure all required fields are present
+        if (!studentRecord.studentId) {
+            throw new Error("Unable to determine student ID");
+        }
+
+        // Update attendance document
+        await setDoc(attendanceDocRef, {
+            date: today, // This will be the current date when the function is called
+            students: arrayUnion(studentRecord)
+        }, { merge: true });
+
+        Alert.alert("Success", `You have been marked as ${status}.`);
+
+    } catch (error) {
+        console.error("Error updating attendance:", error);
+        
+        // More informative error message
+        const errorMessage = error instanceof Error 
+            ? error.message 
+            : "An unknown error occurred";
+        
+        Alert.alert("Error", `Failed to mark attendance: ${errorMessage}`);
+    }
+};
   if (loading) {
     return (
       <View style={styles.container}>
@@ -228,6 +328,7 @@ const AttendanceScreen: React.FC = () => {
       </View>
     );
   }
+
 
   return (
     <View style={styles.container}>
@@ -237,7 +338,12 @@ const AttendanceScreen: React.FC = () => {
       </Text>
       <View style={styles.buttons}>
         <Button title="Present" onPress={() => handleAttendance("Present")} />
-        <Button title="Absent" onPress={() => handleAttendance("Absent")} />
+        <Button title="Absent" onPress={() => handleAttendance("Absent") }  />   
+        <Button title="Generate UID" onPress={async () => {
+          if (deviceId) {
+            await storeDeviceIdInFirestore(deviceId);
+          }
+        }} />       
       </View>
     </View>
   );
@@ -250,6 +356,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     backgroundColor: "white",
+  },idText: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
   },
   title: {
     fontSize: 24,

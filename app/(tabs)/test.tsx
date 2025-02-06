@@ -1,68 +1,117 @@
-import React from "react";
-import { View, Button, Alert, StyleSheet } from "react-native";
-import * as Location from "expo-location";
+import React, { useEffect, useState } from 'react';
+import { View, Text, Button, StyleSheet, Platform } from 'react-native';
+import { v4 as uuidv4 } from 'uuid';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Application from 'expo-application';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+const firebaseConfig = {
+  apiKey: "AIzaSyATZSCZdADIJGYJcnd58Cwg9S9bV2yFYnE",
+  authDomain: "attendance-app-7a21e.firebaseapp.com",
+  projectId: "attendance-app-7a21e",
+  storageBucket: "attendance-app-7a21e.appspot.com",
+  messagingSenderId: "47121417247",
+  appId: "1:47121417247:web:1e086ee27fe10c20e9412a",
+  measurementId: "G-SMF4LTTV59",
+};
 
-// Fixed point (e.g., admin's location)
-const FIXED_LATITUDE = 25.5412206; // Replace with your fixed latitude
-const FIXED_LONGITUDE = 84.8528964; // Replace with your fixed longitude
-const RADIUS = 80; // Radius in meters
-const RequestLocation = () => {
-  const askForLocationPermission = async () => {
-    // Request permission for location access
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status === "granted") {
-      console.log("Permission Granted", "You can now access location services.");
-    // Fetch the current location coordinates
-      const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude, accuracy } = location.coords;
-      console.log("Coordinates:", { latitude, longitude, accuracy });
-      // Check if the user is within the fixed radius
-      const distance = calculateDistance(
-        latitude,
-        longitude,
-        FIXED_LATITUDE,
-        FIXED_LONGITUDE
-      );
-      
-      console.log(distance)
-      if (distance <= RADIUS) {
-        console.log("Inside", `You are within ${RADIUS} meters of the fixed point.`);
-        Alert.alert("Inside", `You are within ${RADIUS} meters of the fixed point.`);
-      } else {
-        console.log("Outside", `You are outside the ${RADIUS} meters radius.`);
-        Alert.alert("Outside", `You are outside the ${RADIUS} meters radius.`);
+// 🔥 Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// 📌 Function to Get or Generate Unique ID
+const getUniqueId = async () => {
+  try {
+    let storedId = await AsyncStorage.getItem('deviceUniqueId');
+
+    if (!storedId) {
+      if (Platform.OS === 'web') {
+        storedId = localStorage.getItem('deviceUniqueId') || uuidv4();
+        localStorage.setItem('deviceUniqueId', storedId);
+      } else if (Platform.OS === 'android') {
+        storedId = Application.androidId || uuidv4();
+      } else if (Platform.OS === 'ios') {
+        storedId = await SecureStore.getItemAsync('deviceUniqueId');
+        if (!storedId) {
+          storedId = uuidv4();
+          await SecureStore.setItemAsync('deviceUniqueId', storedId);
+        }
       }
-    } else {
-      console.log("Permission Denied", "Location access was denied.");
-      Alert.alert("Permission Denied", "Location access was denied.");
+
+      await AsyncStorage.setItem('deviceUniqueId', storedId);
     }
-  };
-  // Function to calculate the distance between two coordinates using Haversine formula
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = toRadians(lat1);
-    const φ2 = toRadians(lat2);
-    const Δφ = toRadians(lat2 - lat1);
-    const Δλ = toRadians(lon2 - lon1);
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in meters
-  };
+
+    return storedId;
+  } catch (error) {
+    console.error('Error generating device ID:', error);
+    return 'error-id';
+  }
+};
+
+// 📌 Function to Store in Firestore
+const storeDeviceIdInFirestore = async (deviceId: string) => {
+  try {
+    const deviceType = Platform.OS; // ios, android, or web
+    const docRef = doc(db, 'devices', deviceId); // Store ID as document name
+
+    await setDoc(docRef, {
+      deviceId,
+      deviceType,
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log('Device ID stored in Firestore:', deviceId);
+  } catch (error) {
+    console.error('Error storing device ID:', error);
+  }
+};
+
+const App = () => {
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchDeviceId = async () => {
+      const id = await getUniqueId();
+      setDeviceId(id);
+    };
+    fetchDeviceId();
+  }, []);
+
   return (
     <View style={styles.container}>
-      <Button title="Request GPS Permission" onPress={askForLocationPermission} />
+      <Text style={styles.title}>Device Unique ID</Text>
+      <Text style={styles.idText}>{deviceId || 'Generating...'}</Text>
+      <Button
+        title="Generate & Store UID"
+        onPress={async () => {
+          if (deviceId) {
+            await storeDeviceIdInFirestore(deviceId);
+          }
+        }}
+      />
     </View>
   );
 };
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f4f4f4',
+    padding: 20,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  idText: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
   },
 });
 
-export default RequestLocation;
+export default App;
