@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
-import { collection, getDocs, db } from '@/utils/firebaseConfig';
+import { getFirestore, collectionGroup, getDocs } from 'firebase/firestore';
 import { useRoute } from '@react-navigation/native';
 
 interface Student {
@@ -9,67 +9,96 @@ interface Student {
   in: number;
 }
 
-interface Attendance {
+interface Session {
   id: string;
+  classTime: string;
   date: string;
   students: Student[];
+  delT: string;
 }
 
 const AttendanceScreen: React.FC = () => {
   const route = useRoute();
-  const { yearId, semesterId, courseId } = route.params as { yearId: string, semesterId: string, courseId: string };
+  const { courseId } = route.params as { courseId: string };
 
-  const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<string | null>(null);
 
-  const fetchAttendance = async () => {
+  const db = getFirestore();
+
+  const fetchSessions = async () => {
     setLoading(true);
+    setErrorMessage(null);
+
     try {
-      const attendanceSnapshot = await getDocs(
-        collection(db, 'years', yearId, 'semesters', semesterId, 'courses', courseId, 'attendance')
-      );
-      const attendanceList = attendanceSnapshot.docs.map(doc => {
-        const data = doc.data() as Attendance;
-        return { id: doc.id, ...data };
+      console.log(`Fetching attendance sessions for course: ${courseId}`);
+      const sessionsRef = collectionGroup(db, 'sessions');
+      const sessionSnapshot = await getDocs(sessionsRef);
+      
+      const records: Session[] = [];
+      sessionSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.courseId === courseId) {
+          records.push({
+            id: doc.id,
+            date: data.date || 'Unknown Date',
+            classTime: data.classTime || 'Unknown Time',
+            students: data.students || [],
+            delT: data.delT || 'Unknown Time',
+          });
+        }
       });
 
-      setAttendanceRecords(attendanceList);
+      const sortedRecords = records.sort((a, b) => (a.date > b.date ? -1 : 1));
+      console.log('Fetched Sessions:', sortedRecords);
+      setSessions(sortedRecords);
     } catch (error) {
-      console.error('Error fetching attendance:', error);
+      console.error('Error fetching sessions:', error);
+      setErrorMessage('Failed to fetch attendance data.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAttendance();
-  }, [yearId, semesterId, courseId]);
+    fetchSessions();
+  }, [courseId]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Attendance Records</Text>
-
+      <Text style={styles.title}>Attendance Sessions</Text>
       {loading ? (
         <ActivityIndicator size="large" color="#007BFF" />
+      ) : errorMessage ? (
+        <Text style={styles.errorText}>{errorMessage}</Text>
+      ) : sessions.length === 0 ? (
+        <Text style={styles.errorText}>No data available.</Text>
       ) : (
         <FlatList
-          data={attendanceRecords}
+          data={sessions}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <View style={styles.recordContainer}>
-              <TouchableOpacity onPress={() => setExpandedDate(expandedDate === item.date ? null : item.date)}>
+              <TouchableOpacity onPress={() => setSelectedDate(selectedDate === item.date ? null : item.date)}>
                 <Text style={styles.date}>{item.date}</Text>
               </TouchableOpacity>
 
-              {expandedDate === item.date && (
+              {selectedDate === item.date && (
+                <TouchableOpacity onPress={() => setSelectedSession(selectedSession === item.id ? null : item.id)}>
+                  <Text style={styles.sessionTime}>{`Class Time: ${item.delT}`}</Text>
+                </TouchableOpacity>
+              )}
+
+              {selectedSession === item.id && (
                 <View>
                   <View style={styles.tableHeader}>
                     <Text style={[styles.cell, styles.headerCell]}>Student Name</Text>
                     <Text style={[styles.cell, styles.headerCell]}>Status</Text>
                     <Text style={[styles.cell, styles.headerCell]}>In</Text>
                   </View>
-
                   {item.students.map((student, index) => (
                     <View key={index} style={styles.row}>
                       <Text style={styles.cell}>{student.studentName}</Text>
@@ -83,8 +112,7 @@ const AttendanceScreen: React.FC = () => {
           )}
         />
       )}
-
-      <TouchableOpacity style={styles.refreshButton} onPress={fetchAttendance}>
+      <TouchableOpacity style={styles.refreshButton} onPress={fetchSessions}>
         <Text style={styles.refreshText}>Refresh</Text>
       </TouchableOpacity>
     </View>
@@ -94,8 +122,10 @@ const AttendanceScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: '#f9f9f9' },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  errorText: { fontSize: 16, color: 'red', textAlign: 'center', marginTop: 20 },
   recordContainer: { marginBottom: 20, padding: 10, borderRadius: 8, backgroundColor: '#fff', elevation: 2 },
   date: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', color: '#007BFF' },
+  sessionTime: { fontSize: 16, fontWeight: 'bold', color: '#333', textAlign: 'center' },
   tableHeader: { flexDirection: 'row', backgroundColor: '#007BFF', paddingVertical: 8, borderRadius: 4 },
   headerCell: { fontWeight: 'bold', color: 'white' },
   row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#ddd', paddingVertical: 8 },

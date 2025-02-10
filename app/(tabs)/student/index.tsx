@@ -1,18 +1,42 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Modal } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Modal,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { db } from '@/utils/firebaseConfig';
-import { collection, getDocs, doc, getDoc, onSnapshot, query } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  where,
+  collectionGroup,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
+
+interface Session {
+  FIXED_LATITUDE: number;
+  FIXED_LONGITUDE: number;
+  classTime: string;
+  sessionId: string;
+}
 
 interface Course {
   id: string;
   name: string;
-  classTime: string;
   code: string;
+  currentSession: Session | null;
   hasScheduledClass: boolean;
-  FIXED_LATITUDE?: number;
-  FIXED_LONGITUDE?: number;
 }
 
 const StudentHome: React.FC = () => {
@@ -23,144 +47,194 @@ const StudentHome: React.FC = () => {
   const router = useRouter();
   const { user } = useAuth();
 
+  const fetchTodaysSessionFromGroup = async (
+    yearId: string,
+    semesterId: string,
+    courseId: string
+  ) => {
+    const todayIST = () => {
+      const now = new Date();
+      // Convert to milliseconds and adjust for IST (+5:30)
+      const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST is UTC +5:30
+      const istTime = new Date(now.getTime() + IST_OFFSET);
+      
+      // Format the date in YYYY-MM-DD format
+      return istTime.toISOString().split('T')[0];
+    };
+    
+    const today = todayIST();
+  
+    // Query the sessions collection group
+    const sessionsGroupQuery = query(
+      collectionGroup(db, 'sessions'),
+      where('date', '==', today), // Filter by today's date
+      where('courseId', '==', courseId), // Ensure session matches courseId
+      orderBy('classTime', 'desc'), // Order by classTime in descending order
+      limit(1) // Limit to the latest session
+    );
+  
+    try {
+      const sessionSnapshot = await getDocs(sessionsGroupQuery);
+      if (!sessionSnapshot.empty) {
+        // Fetch the latest session for the course
+        const sessionData = sessionSnapshot.docs[0].data() as Session;
+        return {
+          sessionId: sessionSnapshot.docs[0].id,
+          classTime: sessionData.classTime,
+          FIXED_LATITUDE: sessionData.FIXED_LATITUDE,
+          FIXED_LONGITUDE: sessionData.FIXED_LONGITUDE,
+        };
+      }
+    } catch (error) {
+      console.error(`Error fetching sessions for course ${courseId}:`, error);
+    }
+    return null;
+  };
+  
+
   const fetchData = async () => {
     try {
       setLoading(true);
       if (!user) return;
-  
-      const userRef = doc(db, 'users', user.uid);
+
+      // Fetch user data
+      const userRef = doc(db, "users", user.uid);
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data();
       setUserData(userData);
-  
+
       const enrolledCourses = userData?.enrolledCourses || [];
       if (enrolledCourses.length === 0) {
         setCourses([]);
         setLoading(false);
         return;
       }
-  
-      const coursesRef = collection(db, `years/${userData?.year}/semesters/${userData?.semester}/courses`);
+
+      // Fetch courses and their sessions
+      const coursesRef = collection(
+        db,
+        `years/${userData?.year}/semesters/${userData?.semester}/courses`
+      );
       const q = query(coursesRef);
-  
-      const unsubscribe = onSnapshot(q, (snapshot: { docs: any[]; }) => {
-        const userCourses = snapshot.docs
+
+      const unsubscribe = onSnapshot(q, async (snapshot) => {
+        const coursesPromises = snapshot.docs
           .filter((doc) => enrolledCourses.includes(doc.data().name))
-          .map((doc) => {
+          .map(async (doc) => {
             const courseData = doc.data();
+
+            // Fetch today's session for the course from collection group
+            const session = await fetchTodaysSessionFromGroup(
+              userData?.year,
+              userData?.semester,
+              doc.id
+            );
+
             return {
               id: doc.id,
               name: courseData.name,
               code: courseData.code,
-              classTime: courseData.classTime || "TBD",
-              hasScheduledClass: courseData.classTime && courseData.classTime !== "TBD",
-              FIXED_LATITUDE: courseData.FIXED_LATITUDE,
-              FIXED_LONGITUDE: courseData.FIXED_LONGITUDE,
+              currentSession: session,
+              hasScheduledClass: !!session,
             };
           });
-  
+
+        const userCourses = await Promise.all(coursesPromises);
         setCourses(userCourses);
         setLoading(false);
       });
-  
-      // Cleanup function to unsubscribe from real-time updates
+
       return () => unsubscribe();
     } catch (error) {
       console.error("Error fetching data:", error);
       setLoading(false);
     }
   };
-  
+
   useEffect(() => {
     fetchData().then((unsubscribe) => {
       return () => {
-        // Unsubscribe from Firestore listener
         unsubscribe && unsubscribe();
       };
     });
   }, [user]);
-  
 
   const handleCoursePress = async (course: Course) => {
-  try {
-    if (!user || !userData) return;
-
-    // Check if classTime is "TBD"
-    if (course.classTime === "TBD") {
-      setModalVisible(true);
-      return;
-    }
-
-    // Get today's date in the required format
-    const today = (() => {
-      const local = new Date();
-      return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
-    })();
-
-    console.log("Today's date:", today);
-
-    // Attendance document reference
-    const attendanceRef = doc(
-      db,
-      `years/${userData.year}/semesters/${userData.semester}/courses/${course.id}/attendance/${today}`
-    );
-
-    const attendanceDoc = await getDoc(attendanceRef);
-
-    if (attendanceDoc.exists()) {
-      const attendanceData = attendanceDoc.data();
-
-      // Check if the current user has marked attendance
-      const userAttendanceRecord = attendanceData.students?.find(
-        (student: any) => student.studentId === user.uid
-      );
-
-      if (userAttendanceRecord) {
-        console.log("User is already present:", userAttendanceRecord);
-        setModalVisible(true); // Show modal to make the tab inactive
-        return; // Exit the function to prevent further actions
-      } else {
-        console.log("User has not marked attendance yet.");
+    try {
+      if (!user || !userData || !course.currentSession) {
+        setModalVisible(true);
+        return;
       }
-    } else {
-      console.log("Attendance document does not exist for today");
-    }
+      if(course.currentSession.classTime===""){
+        setModalVisible(true);
+      }
 
-    // Navigation logic to allow marking attendance
-    if (course.FIXED_LATITUDE !== undefined && course.FIXED_LONGITUDE !== undefined) {
-      router.push({
-        pathname: '/Student/attendanceScreen',
-        params: {
-          course: course.id,
-          year: userData?.year,
-          semester: userData?.semester,
-        },
-      });
-    } else {
-      setModalVisible(true); // Show modal if coordinates are missing
+      const today = new Date().toISOString().split("T")[0];
+
+      // Check existing attendance
+      const attendancePath = `years/${userData.year}/semesters/${userData.semester}/courses/${course.id}/attendance/${today}/sessions/${course.currentSession.sessionId}`;
+      const attendanceRef = doc(db, attendancePath);
+      const attendanceDoc = await getDoc(attendanceRef);
+
+      if (attendanceDoc.exists()) {
+        const attendanceData = attendanceDoc.data();
+        const userAttendanceRecord = attendanceData.students?.find(
+          (student: any) => student.studentId === user.uid
+        );
+        if (course.currentSession.classTime==="") {
+          setModalVisible(true);
+          return;
+        }
+        if (userAttendanceRecord) {
+          setModalVisible(true);
+          return;
+        }
+      }
+
+      if (
+        course.currentSession.FIXED_LATITUDE &&
+        course.currentSession.FIXED_LONGITUDE
+      ) {
+        router.push({
+          pathname: "/Student/attendanceScreen",
+          params: {
+            course: course.id,
+            year: userData?.year,
+            semester: userData?.semester,
+            sessionId: course.currentSession.sessionId,
+          },
+        });
+      } else {
+        setModalVisible(true);
+      }
+    } catch (error) {
+      console.error("Error checking attendance:", error);
     }
-  } catch (error) {
-    console.error("Error checking attendance:", error);
-  }
-};
-  
-  
+  };
 
   const renderCourseCard = ({ item }: { item: Course }) => (
     <TouchableOpacity
-      style={[styles.courseCard, item.hasScheduledClass && styles.scheduledCourseCard]}
+      style={[
+        styles.courseCard,
+        item.hasScheduledClass && styles.scheduledCourseCard,
+      ]}
       onPress={() => handleCoursePress(item)}
     >
       <View style={styles.courseHeader}>
         <Text style={styles.courseCode}>{item.code}</Text>
-        <Text 
-          style={[styles.timeBadge, item.hasScheduledClass && styles.scheduledTimeBadge]}
+        <Text
+          style={[
+            styles.timeBadge,
+            item.hasScheduledClass && styles.scheduledTimeBadge,
+          ]}
         >
-          {item.classTime}
+          {item.currentSession?.classTime || "TBD"}
         </Text>
       </View>
       <Text style={styles.courseName}>{item.name}</Text>
-      {item.hasScheduledClass && <Text style={styles.availableText}>Available for attendance</Text>}
+      {item.hasScheduledClass && (
+        <Text style={styles.availableText}>Available for attendance</Text>
+      )}
     </TouchableOpacity>
   );
 
@@ -178,7 +252,7 @@ const StudentHome: React.FC = () => {
         <Text style={styles.header}>Your Enrolled Courses</Text>
         <TouchableOpacity
           style={styles.editProfileButton}
-          onPress={() => router.push('/Student/year')}
+          onPress={() => router.push("/Student/year")}
         >
           <Text style={styles.editProfileButtonText}>Edit Profile</Text>
         </TouchableOpacity>
@@ -190,7 +264,9 @@ const StudentHome: React.FC = () => {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>No enrolled courses found</Text>
-            <Text style={styles.emptySubText}>Enroll in courses through the courses tab</Text>
+            <Text style={styles.emptySubText}>
+              Enroll in courses through the courses tab
+            </Text>
           </View>
         }
       />
@@ -198,17 +274,12 @@ const StudentHome: React.FC = () => {
         <Text style={styles.refreshButtonText}>Refresh</Text>
       </TouchableOpacity>
 
-      {/* Modal for inactive tab */}
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="slide"
-      >
+      <Modal visible={modalVisible} transparent={true} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalText}>This tab is inactive right now.</Text>
-            <TouchableOpacity 
-              style={styles.modalButton} 
+            <TouchableOpacity
+              style={styles.modalButton}
               onPress={() => setModalVisible(false)}
             >
               <Text style={styles.modalButtonText}>OK</Text>
@@ -246,4 +317,7 @@ const styles = StyleSheet.create({
   modalButtonText: { color: '#FFF', fontSize: 16 }
 });
 
-export default StudentHome; 
+export default StudentHome;
+
+            
+             

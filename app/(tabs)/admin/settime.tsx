@@ -10,7 +10,8 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { db, setDoc, doc } from "@/utils/firebaseConfig";
 import * as Location from "expo-location";
-import { runTransaction } from "firebase/firestore";
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from "uuid"; // For generating unique IDs
 
 const SetTimeScreen: React.FC = () => {
   const params = useLocalSearchParams();
@@ -45,70 +46,101 @@ const SetTimeScreen: React.FC = () => {
     }
   };
 
+  const getISTDate = () => {
+    const now = new Date();
+    const ISTOffset = 330; // IST is UTC+5:30 (5 hours and 30 minutes in minutes)
+    const currentOffset = now.getTimezoneOffset(); // Get the current timezone offset in minutes
+    const totalOffset = currentOffset + ISTOffset; // Calculate the total offset for IST
+    const ISTDate = new Date(now.getTime() + totalOffset * 60 * 1000); // Adjust the date to IST
+
+    // Format the IST date manually in YYYY-MM-DD format
+    const year = ISTDate.getFullYear();
+    const month = String(ISTDate.getMonth() + 1).padStart(2, "0");
+    const day = String(ISTDate.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`; // Return date in YYYY-MM-DD format
+  };
+
   const updateDatabaseWithTime = async (classTime: string) => {
     if (!year || !semester || !courseId) {
       Alert.alert("Error", "Missing required parameters. Please navigate correctly.");
       return;
     }
-  
+
     const fetchedLocation = await askForLocationPermission();
     if (!fetchedLocation) {
       Alert.alert("Error", "Failed to fetch location. Please try again.");
       return;
     }
-  
+
     try {
-      const courseDocRef = doc(
+      // Get today's date in IST
+      const today = getISTDate();
+
+      // Generate a unique session ID
+      const sessionId = uuidv4();
+
+      // Reference to the session document
+      const sessionDocRef = doc(
         db,
         "years",
         year as string,
         "semesters",
         semester as string,
         "courses",
-        courseId as string
+        courseId as string,
+        "attendance",
+        today, // Date document (IST)
+        "sessions", // Subcollection for sessions
+        sessionId // Unique session ID
       );
-  
+      let   delT=classTime;
       // Add additional logging for debugging
-      console.log("Updating course document with:", {
+      console.log("Updating session document with:", {
+        sessionId,
         classTime,
+        courseId,
+        delT,
         latitude: fetchedLocation.lat,
-        longitude: fetchedLocation.long
+        longitude: fetchedLocation.long,
+        date: today,
       });
-  
-      // Use transaction for more reliable updates
-      await runTransaction(db, async (transaction) => {
-        // First, update the document with class time and location
-        transaction.set(courseDocRef, {
-          classTime: classTime,
-          FIXED_LATITUDE: fetchedLocation.lat,
-          FIXED_LONGITUDE: fetchedLocation.long,
-        }, { merge: true });
-  
-        // Schedule clearing of classTime
-        setTimeout(async () => {
-          try {
-            await transaction.set(
-              courseDocRef, 
-              { classTime: "" }, 
-              { merge: true }
-            );
-            console.log("ClassTime cleared after 30 minutes.");
-          } catch (error) {
-            console.error("Error clearing classTime:", error);
-          }
-        }, 1 * 60 * 1000); // 30 minutes
+
+      // Update the session document with class time, courseId, and location
+      await setDoc(sessionDocRef, {
+        sessionId,
+        classTime,
+        delT,
+        courseId,
+        FIXED_LATITUDE: fetchedLocation.lat,
+        FIXED_LONGITUDE: fetchedLocation.long,
+        date: today,
       });
-  
+
+      // Schedule clearing of classTime after 30 minutes
+      setTimeout(async () => {
+        try {
+          await setDoc(
+            sessionDocRef,
+            { classTime: "" },
+            { merge: true }
+          );
+          console.log("ClassTime cleared after 30 minutes.");
+        } catch (error) {
+          console.error("Error clearing classTime:", error);
+        }
+      }, 30 * 60 * 1000); // 30 minutes
+
       Alert.alert(
         "Success",
         `Class time for ${courseCode} (${course}) has been updated to ${classTime}.`
       );
-  
     } catch (error) {
       console.error("Error updating class time:", error);
       Alert.alert("Error", "Failed to update the time. Please try again later.");
     }
   };
+
   const scheduleTask = async () => {
     // Validate time input
     if (!hour || !minute || isNaN(Number(hour)) || isNaN(Number(minute))) {
