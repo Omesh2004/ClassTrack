@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity, Platform } from 'react-native';
 import { getFirestore, collectionGroup, getDocs } from 'firebase/firestore';
 import { useRoute } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { utils, write } from 'xlsx';
+import { saveAs } from 'file-saver'; // For web file handling
 
 interface Student {
   studentName: string;
@@ -63,6 +67,50 @@ const AttendanceScreen: React.FC = () => {
     }
   };
 
+  const downloadAsExcel = (session: Session) => {
+    const worksheetData = [
+      ['Student Name', 'Status', 'In'],
+      ...session.students.map(student => [student.studentName, student.status, student.in])
+    ];
+
+    const worksheet = utils.aoa_to_sheet(worksheetData);
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, worksheet, 'Attendance');
+
+    const excelBuffer = write(workbook, { type: 'binary', bookType: 'xlsx' });
+
+    if (Platform.OS === 'web') {
+      // Handle file saving for web
+      const blob = new Blob([s2ab(excelBuffer)], { type: 'application/octet-stream' });
+      saveAs(blob, `${session.date}_attendance.xlsx`);
+    } else {
+      // Handle file saving for native platforms
+      const fileUri = FileSystem.cacheDirectory + `${session.date}_attendance.xlsx`;
+
+      FileSystem.writeAsStringAsync(fileUri, excelBuffer, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+        .then(() => {
+          Sharing.shareAsync(fileUri, {
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            dialogTitle: 'Download Attendance',
+            UTI: 'com.microsoft.excel.xlsx',
+          });
+        })
+        .catch((error) => {
+          console.error('Error writing or sharing file:', error);
+        });
+    }
+  };
+
+  // Utility function to convert string to ArrayBuffer
+  const s2ab = (s: string) => {
+    const buf = new ArrayBuffer(s.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xff;
+    return buf;
+  };
+
   useEffect(() => {
     fetchSessions();
   }, [courseId]);
@@ -106,6 +154,9 @@ const AttendanceScreen: React.FC = () => {
                       <Text style={styles.cell}>{student.in}</Text>
                     </View>
                   ))}
+                  <TouchableOpacity style={styles.downloadButton} onPress={() => downloadAsExcel(item)}>
+                    <Text style={styles.downloadText}>Download as Excel</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -132,6 +183,8 @@ const styles = StyleSheet.create({
   cell: { flex: 1, textAlign: 'center', fontSize: 16, paddingHorizontal: 5 },
   refreshButton: { backgroundColor: '#007BFF', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 20 },
   refreshText: { fontSize: 18, color: 'white', fontWeight: 'bold' },
+  downloadButton: { backgroundColor: '#28a745', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+  downloadText: { fontSize: 16, color: 'white', fontWeight: 'bold' },
 });
 
 export default AttendanceScreen;
