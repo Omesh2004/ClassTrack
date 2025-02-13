@@ -122,7 +122,7 @@ const App: React.FC = () => {
     }
   };
 
-  const TableCell = ({ children , width, isLastColumn = false }) => (
+  const TableCell: React.FC<{ children: React.ReactNode, width: string, isLastColumn?: boolean }> = ({ children, width, isLastColumn = false }) => (
     <View
       style={[
         styles.cellContainer,
