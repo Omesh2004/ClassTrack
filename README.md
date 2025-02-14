@@ -1,50 +1,67 @@
-# Welcome to your Expo app 👋
+# 📌 Attendance App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## 📖 About
+The **Attendance App** is a React Native application that allows students to mark their attendance based on their real-time location. Admins can set class times and locations, while students can enroll in courses and check in for attendance when they are within the specified proximity.
 
-## Get started
+## 🚀 Features
+- **Superadmin Dashboard**: Manage CRUD operations for years, semesters, student lists, and courses.
+- **Admin Dashboard**: Set class schedules and locations.
+- **Student Authentication**: Secure login and profile management.
+- **Location-Based Attendance**: Uses **Expo Location** to verify student presence.
+- **Firestore Integration**: Fetch years, semesters, and courses dynamically.
+- **Course Enrollment**: Students can enroll in available courses.
+- **Real-Time Attendance Tracking**: View attendance records instantly.
+- **Admin & Superadmin Attendance View**: Both admin and superadmin can view attendance records.
+- **Export Attendance to Excel**: Option to export attendance data for analysis and record-keeping.
+- **User-Friendly Interface**: Simple and clean UI for seamless navigation.
 
-1. Install dependencies
+## 🎨 UI Designs
+### 📌 Login Screen
+![Login Screen](link-to-login-image)
 
-   ```bash
-   npm install
-   ```
+### 📌 Dashboard
+![Dashboard](link-to-dashboard-image)
 
-2. Start the app
+### 📌 Attendance Marking
+![Attendance Marking](link-to-attendance-marking-image)
 
-   ```bash
-    npx expo start
-   ```
+## 🛠 How to Start on Localhost
 
-In the output, you'll find options to open the app in a
+### 📌 Prerequisites
+- **Node.js & npm installed**
+- **Expo CLI installed** (`npm install -g expo-cli`)
+- **Firebase project set up**
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
+### 🔧 Installation & Setup
+#### 1️⃣ Clone the repository
 ```bash
-npm run reset-project
+git clone https://github.com/your-username/attendance-app.git
+cd attendance-app
+```
+#### 2️⃣ Install dependencies
+```bash
+npm install
+```
+#### 3️⃣ Set up environment variables
+Create a `.env` file and add your Firebase config:
+```env
+FIREBASE_API_KEY=your-api-key
+FIREBASE_AUTH_DOMAIN=your-auth-domain
+FIREBASE_PROJECT_ID=your-project-id
+```
+#### 4️⃣ Run the app
+```bash
+expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 🎥 Demo Video
+[![Watch the Demo](link-to-demo-video-thumbnail)](link-to-demo-video-url)
 
-## Learn more
+## 📬 Contact
+📌 **GitHub**: [Omesh2004](https://github.com/Omesh2004/Attendance-app)
 
-To learn more about developing your project with Expo, look at the following resources:
+📌 **Email**: omeshmehta70@gmail.com, mithileshjhahyd@gmail.com
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
+### ⭐ Don't forget to **star** the repo if you like it! 🚀
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
