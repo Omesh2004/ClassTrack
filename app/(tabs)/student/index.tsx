@@ -161,7 +161,7 @@ const StudentHome: React.FC = () => {
 
   const handleCoursePress = async (course: Course) => {
     try {
-      if (!user || !userData || !course.currentSession) {
+      if (!user || !userData || !course.currentSession){
         setModalVisible(true);
         return;
       }
@@ -178,6 +178,7 @@ const StudentHome: React.FC = () => {
 
       if (attendanceDoc.exists()) {
         const attendanceData = attendanceDoc.data();
+        console.log("Attendance data:", attendanceData.students);
         const userAttendanceRecord = attendanceData.students?.find(
           (student: any) => student.studentId === user.uid
         );

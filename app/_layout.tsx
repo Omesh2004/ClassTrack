@@ -44,9 +44,7 @@ export default function RootLayout() {
     if (!loading) {
       if (!user) {
         router.replace('/login'); // Redirect to login if not authenticated
-      } else {
-        router.replace('/(tabs)'); // Redirect to tabs if authenticated
-      }
+      } 
     }
   }, [loading, user]);
 
