@@ -42,7 +42,7 @@ const StudentYearScreen: React.FC = () => {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, { year: yearId });
     }
-    router.push(`/Student/semester?year=${yearId}`);
+    router.push(`/student/semester?year=${yearId}`);
   };
 
   if (loading) {

@@ -197,7 +197,7 @@ const StudentHome: React.FC = () => {
         course.currentSession.FIXED_LONGITUDE
       ) {
         router.push({
-          pathname: "/Student/attendanceScreen",
+          pathname: "/student/attendanceScreen",
           params: {
             course: course.id,
             year: userData?.year,
@@ -253,7 +253,7 @@ const StudentHome: React.FC = () => {
         <Text style={styles.header}>Your Enrolled Courses</Text>
         <TouchableOpacity
           style={styles.editProfileButton}
-          onPress={() => router.push("/Student/year")}
+          onPress={() => router.push("/student/year")}
         >
           <Text style={styles.editProfileButtonText}>Edit Profile</Text>
         </TouchableOpacity>

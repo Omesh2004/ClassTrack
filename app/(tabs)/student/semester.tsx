@@ -46,7 +46,7 @@ const StudentSemesterScreen: React.FC = () => {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, { semester: semesterId });
     }
-    router.push(`/Student/courses?year=${year}&semester=${semesterId}`);
+    router.push(`/student/courses?year=${year}&semester=${semesterId}`);
   };
 
   if (loading) {
