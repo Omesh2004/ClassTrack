@@ -32,7 +32,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyATZSCZdADIJGYJcnd58Cwg9S9bV2yFYnE",
   authDomain: "attendance-app-7a21e.firebaseapp.com",
   projectId: "attendance-app-7a21e",
-  storageBucket: "attendance-app-7a21e.appspot.com",
+  storageBucket: "attendance-app-7a21e.firebasestorage.app",
   messagingSenderId: "47121417247",
   appId: "1:47121417247:web:1e086ee27fe10c20e9412a",
   measurementId: "G-SMF4LTTV59",

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Button } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Modal, Button } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { db, collection, getDocs, doc, getDoc } from '@/utils/firebaseConfig';
 
@@ -15,24 +15,23 @@ const CourseScreen: React.FC = () => {
   const [yearName, setYearName] = useState<string>('');
   const [semesterName, setSemesterName] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
+  const [modalVisible, setModalVisible] = useState<boolean>(false);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch year name
         const yearDoc = await getDoc(doc(db, 'years', year as string));
         if (yearDoc.exists()) {
           setYearName(yearDoc.data().name);
         }
 
-        // Fetch semester name
         const semesterDoc = await getDoc(doc(db, 'years', year as string, 'semesters', semester as string));
         if (semesterDoc.exists()) {
           setSemesterName(semesterDoc.data().name);
         }
 
-        // Fetch courses
         const coursesSnapshot = await getDocs(
           collection(db, 'years', year as string, 'semesters', semester as string, 'courses')
         );
@@ -51,19 +50,45 @@ const CourseScreen: React.FC = () => {
     fetchData();
   }, [year, semester]);
 
-  const handleCoursePress = (course: Course) => {
-    router.push({
-      pathname: '/admin/settime',
-      params: { 
-        course: course.name,
-        courseId: course.id,
-        courseCode: course.code,
-        year: year,               // ✅ Pass year
-        semester: semester        // ✅ Pass semester
+  const openModal = (course: Course) => {
+    setSelectedCourse(course);
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+  };
+
+  const navigateToSetTime = () => {
+    if (selectedCourse) {
+      router.push({
+        pathname: '/admin/settime',
+        params: {
+          course: selectedCourse.name,
+          courseId: selectedCourse.id,
+          courseCode: selectedCourse.code,
+          year: year,
+          semester: semester
+        },
+      });
+    }
+    closeModal();
+  };
+
+  const navigateToUpload = () => {
+    if (selectedCourse) {
+    router.push({ pathname: '/admin/upload',
+      params: {
+        course: selectedCourse.name,
+        courseId: selectedCourse.id,
+        courseCode: selectedCourse.code,
+        year: year,
+        semester: semester
       },
     });
+  }
+    closeModal();
   };
-  
 
   if (loading) {
     return (
@@ -85,7 +110,7 @@ const CourseScreen: React.FC = () => {
         renderItem={({ item }) => (
           <TouchableOpacity 
             style={styles.courseCard} 
-            onPress={() => handleCoursePress(item)}
+            onPress={() => openModal(item)}
           >
             <Text style={styles.courseCode}>{item.code}</Text>
             <Text style={styles.courseName}>{item.name}</Text>
@@ -95,7 +120,23 @@ const CourseScreen: React.FC = () => {
           <Text style={styles.emptyText}>No courses available.</Text>
         }
       />
-     
+      
+      {/* Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={closeModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select an action</Text>
+            <Button title="Go to Course" onPress={navigateToSetTime} />
+            <Button title="Upload Notes" onPress={navigateToUpload} />
+            <Button title="Cancel" color="red" onPress={closeModal} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -147,6 +188,24 @@ const styles = StyleSheet.create({
     marginTop: 50,
     fontSize: 16,
     color: '#666',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    width: 300,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
   },
 });
 

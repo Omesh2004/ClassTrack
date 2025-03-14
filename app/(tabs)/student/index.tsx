@@ -221,6 +221,7 @@ const StudentHome: React.FC = () => {
       ]}
       onPress={() => handleCoursePress(item)}
     >
+      
       <View style={styles.courseHeader}>
         <Text style={styles.courseCode}>{item.code}</Text>
         <Text
@@ -271,6 +272,9 @@ const StudentHome: React.FC = () => {
           </View>
         }
       />
+    <TouchableOpacity style={styles.refreshButton} onPress={() => router.push("/student/notescourse")} >
+        <Text style={styles.refreshButtonText}>SEE NOTES</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.refreshButton} onPress={fetchData}>
         <Text style={styles.refreshButtonText}>Refresh</Text>
       </TouchableOpacity>
