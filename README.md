@@ -27,7 +27,7 @@ The **Class Track** app is a React Native application that enables students to m
 ![Attendance Marking](link-to-attendance-marking-image)
 
 ### 📌 Notes Section
-![Notes Section](link-to-notes-image)
+![Notes Section](https://imgur.com/a/2HaxsIZ)
 
 ## 🛠 How to Start on Localhost
 
@@ -62,7 +62,7 @@ expo start
 [![Watch the Demo](link-to-demo-video-thumbnail)](link-to-demo-video-url)
 
 ## 📬 Contact
-📌 **GitHub**: [Omesh2004](https://github.com/your-username)
+📌 **GitHub**: [Omesh2004](https://github.com/Omesh2004)
 
 📌 **Email**: boy118141@gmail.com
 
