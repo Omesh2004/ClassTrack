@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Modal, ActivityIndicator } from 'react-native';
 import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc } from '@/utils/firebaseConfig';
 import { useLocalSearchParams } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface Course {
   id: string;
@@ -21,6 +23,7 @@ const CourseManagement: React.FC = () => {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editCourseName, setEditCourseName] = useState('');
   const [editCourseCode, setEditCourseCode] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchMetadata();
@@ -38,39 +41,48 @@ const CourseManagement: React.FC = () => {
       }
     } catch (error) {
       console.error('Error fetching metadata:', error);
+      Alert.alert('Error', 'Failed to load academic information');
     }
   };
 
   const fetchCourses = async () => {
+    setIsLoading(true);
     try {
       const coursesSnapshot = await getDocs(
         collection(db, 'years', yearId as string, 'semesters', semesterId as string, 'courses')
       );
       const coursesData = coursesSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        name: doc.data().name,
+        code: doc.data().code,
+        semesterId: doc.data().semesterId,
+        yearId: doc.data().yearId
       }));
       setCourses(coursesData as Course[]);
     } catch (error) {
       console.error('Error fetching courses:', error);
       Alert.alert('Error', 'Failed to load courses');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const addCourse = async () => {
     if (!newCourseName.trim() || !newCourseCode.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Validation Error', 'Please fill in all fields');
       return;
     }
 
     try {
+      setIsLoading(true);
       await addDoc(
         collection(db, 'years', yearId as string, 'semesters', semesterId as string, 'courses'), 
         {
           name: newCourseName.trim(),
           code: newCourseCode.trim().toUpperCase(),
           semesterId,
-          yearId
+          yearId,
+          createdAt: new Date().toISOString()
         }
       );
       setNewCourseName('');
@@ -78,23 +90,30 @@ const CourseManagement: React.FC = () => {
       fetchCourses();
     } catch (error) {
       console.error('Error adding course:', error);
-      Alert.alert('Error', 'Failed to add course');
+      const errorMessage = (error instanceof Error && error.message) ? error.message : 'Failed to add course';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const deleteCourse = async (courseId: string) => {
+  const deleteCourse = async (course: Course) => {
     Alert.alert(
-      'Confirm Delete',
-      'Are you sure you want to delete this course?',
+      'Confirm Deletion',
+      `Delete "${course.code} - ${course.name}" and all its content?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Cancel', 
+          style: 'cancel',
+          onPress: () => console.log('Deletion cancelled')
+        },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             try {
               await deleteDoc(
-                doc(db, 'years', yearId as string, 'semesters', semesterId as string, 'courses', courseId)
+                doc(db, 'years', yearId as string, 'semesters', semesterId as string, 'courses', course.id)
               );
               fetchCourses();
             } catch (error) {
@@ -103,7 +122,8 @@ const CourseManagement: React.FC = () => {
             }
           }
         }
-      ]
+      ],
+      { cancelable: true }
     );
   };
 
@@ -135,16 +155,62 @@ const CourseManagement: React.FC = () => {
     }
   };
 
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="menu-book" size={48} color="#64748b" />
+      <Text style={styles.emptyTitle}>No Courses Found</Text>
+      <Text style={styles.emptyText}>
+        Add your first course to start organizing content
+      </Text>
+    </View>
+  );
+
+  const renderItem = ({ item }: { item: Course }) => (
+    <View style={styles.card}>
+      <View style={styles.cardContent}>
+        <View style={styles.courseInfo}>
+          <Text style={styles.courseCode}>{item.code}</Text>
+          <Text style={styles.courseName}>{item.name}</Text>
+        </View>
+        
+        <View style={styles.actions}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => handleEditCourse(item)}
+          >
+            <MaterialIcons name="edit" size={20} color="#3b82f6" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => deleteCourse(item)}
+          >
+            <MaterialIcons name="delete" size={20} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>
-        Courses for {yearName} - {semesterName}
-      </Text>
+      <LinearGradient
+        colors={['#f8fafc', '#e2e8f0']}
+        style={styles.background}
+      />
       
-      <View style={styles.inputGroup}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Course Management</Text>
+        <Text style={styles.subtitle}>
+          {yearName} • {semesterName}
+        </Text>
+      </View>
+
+      <View style={styles.inputContainer}>
         <TextInput
-          style={[styles.input, { flex: 0.4 }]}
-          placeholder="Course Code (e.g., CS101)"
+          style={[styles.input, { flex: 0.6 }]}
+          placeholder="Course Code (e.g. CS101)"
+          placeholderTextColor="#94a3b8"
           value={newCourseCode}
           onChangeText={setNewCourseCode}
           autoCapitalize="characters"
@@ -152,191 +218,310 @@ const CourseManagement: React.FC = () => {
         <TextInput
           style={[styles.input, { flex: 1 }]}
           placeholder="Course Name"
+          placeholderTextColor="#94a3b8"
           value={newCourseName}
           onChangeText={setNewCourseName}
         />
-        <TouchableOpacity style={styles.addButton} onPress={addCourse}>
-          <Text style={styles.buttonText}>Add</Text>
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={addCourse}
+          disabled={!newCourseName.trim() || !newCourseCode.trim() || isLoading}
+        >
+          <LinearGradient
+            colors={['#4f46e5', '#7c3aed']}
+            style={styles.addButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Text style={styles.addButtonText}>Add</Text>
+            <MaterialIcons name="add" size={20} color="white" />
+          </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Edit Course Modal */}
-      <Modal visible={!!editingCourse} transparent={true}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+        </View>
+      ) : (
+        <FlatList
+          data={courses}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={renderEmptyState}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      {/* Edit Modal */}
+      <Modal
+        visible={!!editingCourse}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingCourse(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Edit Course</Text>
+            
             <TextInput
               style={styles.modalInput}
-              placeholder="Course Code (e.g., CS101)"
+              placeholder="Course Code"
+              placeholderTextColor="#94a3b8"
               value={editCourseCode}
               onChangeText={setEditCourseCode}
               autoCapitalize="characters"
+              autoFocus
             />
+            
             <TextInput
               style={styles.modalInput}
               placeholder="Course Name"
+              placeholderTextColor="#94a3b8"
               value={editCourseName}
               onChangeText={setEditCourseName}
             />
-            <View style={styles.modalButtons}>
+            
+            <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={styles.modalButton} 
+                style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setEditingCourse(null)}
               >
-                <Text style={styles.cancelButton}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
+              
               <TouchableOpacity 
-                style={styles.modalButton}
+                style={[styles.modalButton, styles.saveButton]}
                 onPress={saveEditedCourse}
+                disabled={!editCourseName.trim() || !editCourseCode.trim()}
               >
-                <Text style={styles.updateButton}>Save</Text>
+                <LinearGradient
+                  colors={['#4f46e5', '#7c3aed']}
+                  style={styles.saveButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-
-      <FlatList
-        data={courses}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.listItem}>
-            <View style={styles.courseInfo}>
-              <Text style={styles.courseCode}>{item.code}</Text>
-              <Text style={styles.courseName}>{item.name}</Text>
-            </View>
-            <View style={styles.actions}>
-              <TouchableOpacity onPress={() => handleEditCourse(item)}>
-                <Text style={styles.updateText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => deleteCourse(item.id)}>
-                <Text style={styles.deleteText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 20, 
-    backgroundColor: '#f5f5f5' 
+  container: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  title: { 
-    fontSize: 20, 
-    fontWeight: 'bold', 
-    marginBottom: 20, 
-    color: '#333' 
+  background: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
-  inputGroup: { 
-    flexDirection: 'row', 
-    gap: 10, 
-    marginBottom: 20 
+  header: {
+    marginBottom: 24,
   },
-  input: { 
-    borderWidth: 1, 
-    borderColor: '#ddd', 
-    borderRadius: 8, 
-    padding: 12,
-    backgroundColor: '#fff'
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  input: {
+    height: 50,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   addButton: {
-    backgroundColor: '#007AFF',
-    padding: 12,
-    borderRadius: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 50,
+    width: 100,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  addButtonGradient: {
+    flex: 1,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 80
+    gap: 8,
+    paddingHorizontal: 16,
   },
-  buttonText: { 
-    color: 'white', 
-    fontWeight: '600' 
+  addButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
-  listItem: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  listContainer: {
+    paddingBottom: 20,
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 12,
     padding: 16,
-    marginBottom: 10,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   courseInfo: {
     flex: 1,
   },
   courseCode: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
   },
   courseName: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 16,
+    color: '#64748b',
   },
   actions: {
     flexDirection: 'row',
-    gap: 15,
+    gap: 12,
   },
-  updateText: {
-    color: '#007AFF',
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
     fontWeight: '600',
+    color: '#1e293b',
+    marginTop: 16,
+    marginBottom: 8,
   },
-  deleteText: {
-    color: '#FF3B30',
-    fontWeight: '600',
+  emptyText: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
   },
-  modalContainer: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
     padding: 20,
-    width: '90%',
-    maxWidth: 400,
+  },
+  modalContainer: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 5,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e293b',
     marginBottom: 20,
-    color: '#333',
   },
   modalInput: {
+    height: 50,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1e293b',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
-    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    marginBottom: 16,
   },
-  modalButtons: {
+  modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 10,
+    gap: 12,
   },
   modalButton: {
-    padding: 10,
-    borderRadius: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 50,
   },
   cancelButton: {
-    color: '#666',
-    fontWeight: '600',
+    width: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
   },
-  updateButton: {
-    color: '#007AFF',
+  cancelButtonText: {
+    color: '#64748b',
     fontWeight: '600',
+    fontSize: 16,
+  },
+  saveButton: {
+    flex: 1,
+    maxWidth: 200,
+  },
+  saveButtonGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });
 

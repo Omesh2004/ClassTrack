@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Modal, ActivityIndicator } from 'react-native';
 import { db, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc } from '@/utils/firebaseConfig';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface Semester {
   id: string;
@@ -18,11 +20,12 @@ const SemesterManagement: React.FC = () => {
   const [yearName, setYearName] = useState('');
   const [editingSemester, setEditingSemester] = useState<Semester | null>(null);
   const [editSemesterName, setEditSemesterName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!yearId) return;
-    fetchSemesters();
     fetchYearName();
+    fetchSemesters();
   }, [yearId]);
 
   const fetchYearName = async () => {
@@ -33,51 +36,65 @@ const SemesterManagement: React.FC = () => {
       }
     } catch (error) {
       console.error('Error fetching year name:', error);
+      Alert.alert('Error', 'Failed to load year information');
     }
   };
 
   const fetchSemesters = async () => {
+    setIsLoading(true);
     try {
       const semestersSnapshot = await getDocs(
         collection(db, 'years', yearId as string, 'semesters')
       );
       const semestersData = semestersSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
-      })).sort((a, b) => a.order - b.order);
-      setSemesters(semestersData as Semester[]);
+        name: doc.data().name,
+        order: doc.data().order,
+        yearId: doc.data().yearId
+      } as Semester)).sort((a, b) => a.order - b.order);
+      setSemesters(semestersData);
     } catch (error) {
       console.error('Error fetching semesters:', error);
       Alert.alert('Error', 'Failed to load semesters');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const addSemester = async () => {
     if (!newSemesterName.trim()) {
-      Alert.alert('Error', 'Please enter a semester name');
+      Alert.alert('Validation Error', 'Please enter a semester name');
       return;
     }
 
     try {
+      setIsLoading(true);
       await addDoc(collection(db, 'years', yearId as string, 'semesters'), {
         name: newSemesterName.trim(),
         order: semesters.length + 1,
-        yearId: yearId
+        yearId: yearId,
+        createdAt: new Date().toISOString()
       });
       setNewSemesterName('');
       fetchSemesters();
     } catch (error) {
       console.error('Error adding semester:', error);
-      Alert.alert('Error', 'Failed to add semester');
+      Alert.alert('Error', (error instanceof Error && error.message) ? error.message : 'Failed to add semester');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const deleteSemester = async (semester: Semester) => {
     Alert.alert(
-      'Confirm Delete',
-      `Delete ${semester.name} and all its courses?`,
+      'Confirm Deletion',
+      `This will delete "${semester.name}" and all associated courses. Continue?`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Cancel', 
+          style: 'cancel',
+          onPress: () => console.log('Deletion cancelled')
+        },
         {
           text: 'Delete',
           style: 'destructive',
@@ -91,7 +108,8 @@ const SemesterManagement: React.FC = () => {
             }
           }
         }
-      ]
+      ],
+      { cancelable: true }
     );
   };
 
@@ -119,160 +137,379 @@ const SemesterManagement: React.FC = () => {
     }
   };
 
-  const navigateToCourses = (semesterId: string) => {
-    router.push(`/superadmin/courses?year=${yearId}&semester=${semesterId}`);
+  const navigateToCourses = (semesterId: string, semesterName: string) => {
+    router.push({
+      pathname: '/superadmin/courses',
+      params: { 
+        year: yearId, 
+        semester: semesterId,
+        semesterName,
+        yearName
+      }
+    });
   };
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="collections-bookmark" size={48} color="#64748b" />
+      <Text style={styles.emptyTitle}>No Semesters Found</Text>
+      <Text style={styles.emptyText}>
+        Add your first semester to organize courses
+      </Text>
+    </View>
+  );
+
+  const renderItem = ({ item }: { item: Semester }) => (
+    <TouchableOpacity 
+      style={styles.card}
+      onPress={() => navigateToCourses(item.id, item.name)}
+      activeOpacity={0.9}
+    >
+      <View style={styles.cardContent}>
+        <View style={styles.semesterInfo}>
+          <Text style={styles.semesterName}>{item.name}</Text>
+          <Text style={styles.semesterOrder}>Order: {item.order}</Text>
+        </View>
+        
+        <View style={styles.actions}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleEditSemester(item);
+            }}
+          >
+            <MaterialIcons name="edit" size={20} color="#3b82f6" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              deleteSemester(item);
+            }}
+          >
+            <MaterialIcons name="delete" size={20} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Manage Semesters for {yearName}</Text>
+      <LinearGradient
+        colors={['#f8fafc', '#e2e8f0']}
+        style={styles.background}
+      />
       
+      <View style={styles.header}>
+        <Text style={styles.title}>Semester Management</Text>
+        <Text style={styles.subtitle}>{yearName || 'Loading...'}</Text>
+      </View>
+
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Enter Semester Name (e.g., 1st Semester)"
+          placeholder="Enter semester name (e.g. First Semester)"
+          placeholderTextColor="#94a3b8"
           value={newSemesterName}
           onChangeText={setNewSemesterName}
+          onSubmitEditing={addSemester}
         />
-        <TouchableOpacity style={styles.addButton} onPress={addSemester}>
-          <Text style={styles.buttonText}>Add Semester</Text>
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={addSemester}
+          disabled={!newSemesterName.trim() || isLoading}
+        >
+          <LinearGradient
+            colors={['#4f46e5', '#7c3aed']}
+            style={styles.addButtonGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Text style={styles.addButtonText}>Add Semester</Text>
+            <MaterialIcons name="add" size={20} color="white" />
+          </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Edit Semester Modal */}
-      <Modal visible={!!editingSemester} transparent={true}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4f46e5" />
+        </View>
+      ) : (
+        <FlatList
+          data={semesters}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContainer}
+          ListEmptyComponent={renderEmptyState}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      {/* Edit Modal */}
+      <Modal
+        visible={!!editingSemester}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingSemester(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Edit Semester</Text>
+            
             <TextInput
               style={styles.modalInput}
-              placeholder="Enter new semester name"
+              placeholder="Semester name"
+              placeholderTextColor="#94a3b8"
               value={editSemesterName}
               onChangeText={setEditSemesterName}
               autoFocus
             />
-            <View style={styles.modalButtons}>
+            
+            <View style={styles.modalActions}>
               <TouchableOpacity 
-                style={styles.modalButton} 
+                style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setEditingSemester(null)}
               >
-                <Text style={styles.cancelButton}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
+              
               <TouchableOpacity 
-                style={styles.modalButton}
+                style={[styles.modalButton, styles.saveButton]}
                 onPress={saveEditedSemester}
+                disabled={!editSemesterName.trim()}
               >
-                <Text style={styles.updateButton}>Save</Text>
+                <LinearGradient
+                  colors={['#4f46e5', '#7c3aed']}
+                  style={styles.saveButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-
-      <FlatList
-        data={semesters}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.listItem}>
-            <TouchableOpacity 
-              style={styles.semesterName}
-              onPress={() => navigateToCourses(item.id)}
-            >
-              <Text style={styles.semesterText}>{item.name}</Text>
-            </TouchableOpacity>
-            <View style={styles.actions}>
-              <TouchableOpacity onPress={() => handleEditSemester(item)}>
-                <Text style={styles.updateText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => deleteSemester(item)}>
-                <Text style={styles.deleteText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#f5f5f5' },
-  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, color: '#333' },
-  inputContainer: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  input: { 
-    flex: 1, 
-    borderWidth: 1, 
-    borderColor: '#ddd', 
-    borderRadius: 8, 
-    padding: 12,
-    backgroundColor: '#fff'
+  container: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  background: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  header: {
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  input: {
+    flex: 1,
+    height: 50,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1e293b',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   addButton: {
-    backgroundColor: '#007AFF',
-    padding: 12,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center'
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 50,
+    minWidth: 140,
+    shadowColor: '#4f46e5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  buttonText: { color: 'white', fontWeight: '600' },
-  listItem: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  addButtonGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  addButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  listContainer: {
+    paddingBottom: 20,
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 12,
     padding: 16,
-    marginBottom: 10,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2
   },
-  semesterName: { flex: 1 },
-  semesterText: { fontSize: 16, color: '#333' },
-  actions: { flexDirection: 'row', gap: 15, alignItems: 'center' },
-  updateText: { color: '#007AFF', fontWeight: '600' },
-  deleteText: { color: '#ff3b30', fontWeight: '600' },
-  modalContainer: {
+  semesterInfo: {
+    flex: 1,
+  },
+  semesterName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  semesterOrder: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)'
+    padding: 40,
   },
-  modalContent: {
-    width: '80%',
-    backgroundColor: 'white',
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     padding: 20,
-    borderRadius: 10
+  },
+  modalContainer: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 5,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 20,
   },
   modalInput: {
+    height: 50,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1e293b',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 15
+    borderColor: '#e2e8f0',
+    marginBottom: 24,
   },
-  modalButtons: {
+  modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 15
+    gap: 12,
   },
   modalButton: {
-    padding: 8
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 50,
   },
   cancelButton: {
-    color: '#666'
+    width: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
   },
-  updateButton: {
-    color: '#007AFF',
-    fontWeight: '600'
-  }
+  cancelButtonText: {
+    color: '#64748b',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  saveButton: {
+    flex: 1,
+    maxWidth: 200,
+  },
+  saveButtonGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
+  },
 });
 
 export default SemesterManagement;

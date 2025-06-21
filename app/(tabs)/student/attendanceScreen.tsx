@@ -1,16 +1,29 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Button, Alert, StyleSheet, Platform } from "react-native";
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  ActivityIndicator, 
+  StyleSheet, 
+  SafeAreaView,
+  StatusBar,
+  Dimensions,
+  Animated,
+  Platform,
+  Alert
+} from "react-native";
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from "expo-router";
-import {
-  updateDoc,
-  doc,
-  arrayUnion,
-  collection,
-  query,
-  where,
-  getDocs,
+import { 
+  updateDoc, 
+  doc, 
+  arrayUnion, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
   getDoc,
-  setDoc,
   collectionGroup,
   orderBy,
   limit,
@@ -25,6 +38,7 @@ import { v4 as uuidv4 } from 'uuid';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 
+const { width } = Dimensions.get('window');
 const RADIUS = 80;
 
 // Firebase configuration
@@ -59,8 +73,19 @@ const AttendanceScreen: React.FC = () => {
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [buttonPressed, setButtonPressed] = useState<"Present" | "Absent" | null>(null);
   const { course, year, semester, sessionId } = useLocalSearchParams();
   const { user } = useAuth();
+  const fadeAnim = useState(new Animated.Value(0))[0];
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   const calculateDistance = (
     lat1: number,
@@ -83,25 +108,20 @@ const AttendanceScreen: React.FC = () => {
 
   const fetchCurrentSession = async () => {
     try {
-      console.log("Fetching current session for course:", course);
       const todayIST = () => {
         const now = new Date();
-        // Convert to milliseconds and adjust for IST (+5:30)
-        const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST is UTC +5:30
+        const IST_OFFSET = 5.5 * 60 * 60 * 1000;
         const istTime = new Date(now.getTime() + IST_OFFSET);
-        
-        // Format the date in YYYY-MM-DD format
         return istTime.toISOString().split('T')[0];
       };
       
       const today = todayIST()
-      // Query for the latest session with matching courseId
       const sessionsQuery = query(
         collectionGroup(db, 'sessions'),
-        where('date', '==', today), // Filter by today's date
-        where('courseId', '==', course), // Ensure session matches courseId
-        orderBy('classTime', 'desc'), // Order by classTime in descending order
-        limit(1) // Limit to the latest session
+        where('date', '==', today),
+        where('courseId', '==', course),
+        orderBy('classTime', 'desc'),
+        limit(1)
       );
 
       const querySnapshot = await getDocs(sessionsQuery);
@@ -109,12 +129,9 @@ const AttendanceScreen: React.FC = () => {
       if (!querySnapshot.empty) {
         const sessionDoc = querySnapshot.docs[0];
         const sessionData = sessionDoc.data() as Session;
-        
-        console.log("Found session:", sessionData);
         setCurrentSession(sessionData);
       } else {
-        console.log("No active session found for course:", course);
-        Alert.alert("Error", "No active session found for this course.");
+        Alert.alert("No Active Session", "No active session found for this course.");
       }
     } catch (error) {
       console.error("Error fetching current session:", error);
@@ -122,12 +139,12 @@ const AttendanceScreen: React.FC = () => {
     }
   };
 
-  const askForLocationPermission = async (): Promise<any> => {
+  const askForLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("Permission Denied", "Location access was denied.");
-        return -1;
+        return null;
       }
 
       const location = await Location.getCurrentPositionAsync({});
@@ -140,16 +157,12 @@ const AttendanceScreen: React.FC = () => {
           currentSession.FIXED_LATITUDE,
           currentSession.FIXED_LONGITUDE
         );
-
-        console.log("Fetched Location:", { latitude, longitude, distance });
         return { lat: latitude, long: longitude, dist: distance };
-      } else {
-        console.error("No active session available.");
-        return -1;
       }
+      return null;
     } catch (error) {
       console.error("Error getting location:", error);
-      return -1;
+      return null;
     }
   };
 
@@ -160,7 +173,6 @@ const AttendanceScreen: React.FC = () => {
         if (!user) {
           const currentUser = auth.currentUser;
           if (!currentUser) {
-            console.log("No user found");
             Alert.alert("Error", "No user is currently logged in.");
             return;
           }
@@ -197,6 +209,9 @@ const AttendanceScreen: React.FC = () => {
 
   const handleAttendance = async (status: "Present" | "Absent") => {
     try {
+      setProcessing(true);
+      setButtonPressed(status);
+      
       if (!userData?.name || !user?.uid || !currentSession) {
         Alert.alert("Error", "Required data is missing.");
         return;
@@ -211,13 +226,6 @@ const AttendanceScreen: React.FC = () => {
       const { lat, long, dist } = locationData;
       const isWithinRadius = dist < RADIUS;
 
-      console.log("Attendance status:", {
-        status,
-        distance: dist,
-        withinRadius: isWithinRadius,
-      });
-
-      // Get the attendance document reference using the session path
       const attendanceRef = doc(
         db,
         `years/${year}/semesters/${semester}/courses/${course}/attendance/${currentSession.date}/sessions/${currentSession.sessionId}`
@@ -242,68 +250,246 @@ const AttendanceScreen: React.FC = () => {
         students: arrayUnion(studentRecord),
       });
 
-      Alert.alert("Success", `You have been marked as ${status}.`);
+      Alert.alert(
+        "Attendance Recorded",
+        `You have been marked as ${status}${isWithinRadius ? "" : " (outside radius)"}`,
+        [{ text: "OK", onPress: () => setButtonPressed(null) }]
+      );
     } catch (error) {
       console.error("Error updating attendance:", error);
       Alert.alert(
         "Error",
         `Failed to mark attendance: ${error instanceof Error ? error.message : "Unknown error"}`
       );
+    } finally {
+      setProcessing(false);
     }
   };
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <Text>Loading user data...</Text>
-      </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar barStyle="dark-content" />
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.loadingGradient}
+        >
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.loadingText}>Loading Attendance...</Text>
+        </LinearGradient>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Course: {course}</Text>
-      <Text style={styles.subtitle}>
-        Welcome, {userData?.name || "Student"} Mark your Attendance
-      </Text>
-      {currentSession && (
-        <Text style={styles.sessionInfo}>
-          Class Time: {currentSession.classTime}
-        </Text>
-      )}
-      <View style={styles.buttons}>
-        <Button title="Present" onPress={() => handleAttendance("Present")} />
-        <Button title="Absent" onPress={() => handleAttendance("Absent")} />
-      </View>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <Animated.View style={{ opacity: fadeAnim }}>
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.header}
+        >
+          <Text style={styles.headerTitle}>Attendance</Text>
+          <Text style={styles.headerSubtitle}>
+            {course} • {currentSession?.classTime || "Current Session"}
+          </Text>
+        </LinearGradient>
+
+        <View style={styles.content}>
+          <View style={styles.userInfo}>
+            <View style={styles.avatar}>
+              <MaterialIcons name="person" size={32} color="#667eea" />
+            </View>
+            <Text style={styles.userName}>{userData?.name || "Student"}</Text>
+            <Text style={styles.userEmail}>{user?.email || auth.currentUser?.email}</Text>
+          </View>
+
+          <View style={styles.sessionInfo}>
+            <Text style={styles.infoTitle}>Session Details</Text>
+            <View style={styles.infoRow}>
+              <MaterialIcons name="schedule" size={20} color="#64748B" />
+              <Text style={styles.infoText}>{currentSession?.classTime || "Not available"}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <MaterialIcons name="calendar-today" size={20} color="#64748B" />
+              <Text style={styles.infoText}>{currentSession?.date || "Not available"}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <MaterialIcons name="location-on" size={20} color="#64748B" />
+              <Text style={styles.infoText}>Within {RADIUS}m radius required</Text>
+            </View>
+          </View>
+
+          <View style={styles.buttonsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.attendanceButton,
+                styles.presentButton,
+                buttonPressed === "Present" && styles.buttonPressed
+              ]}
+              onPress={() => handleAttendance("Present")}
+              disabled={processing}
+            >
+              {processing && buttonPressed === "Present" ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <MaterialIcons name="check-circle" size={24} color="#FFFFFF" />
+                  <Text style={styles.buttonText}>Present</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.attendanceButton,
+                styles.absentButton,
+                buttonPressed === "Absent" && styles.buttonPressed
+              ]}
+              onPress={() => handleAttendance("Absent")}
+              disabled={processing}
+            >
+              {processing && buttonPressed === "Absent" ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <MaterialIcons name="cancel" size={24} color="#FFFFFF" />
+                  <Text style={styles.buttonText}>Absent</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Animated.View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 16,
-    backgroundColor: "white",
+    backgroundColor: '#f8fafc',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
+  loadingContainer: {
+    flex: 1,
+  },
+  loadingGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginTop: 16,
+    fontFamily: 'Inter_500Medium',
+  },
+  header: {
+    paddingVertical: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 30,
+    paddingHorizontal: 24,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+  },
+  content: {
+    padding: 24,
+  },
+  userInfo: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  subtitle: {
-    fontSize: 18,
-    marginBottom: 16,
+  userName: {
+    fontSize: 22,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  userEmail: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#64748B',
   },
   sessionInfo: {
-    fontSize: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
     marginBottom: 32,
-    color: "#666",
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  buttons: {
-    flexDirection: "row",
-    gap: 16,
+  infoTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#1E293B',
+    marginBottom: 16,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+    color: '#64748B',
+    marginLeft: 12,
+  },
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  attendanceButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginHorizontal: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  presentButton: {
+    backgroundColor: '#4CAF50',
+  },
+  absentButton: {
+    backgroundColor: '#F44336',
+  },
+  buttonPressed: {
+    opacity: 0.8,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontFamily: 'Inter_600SemiBold',
+    marginLeft: 8,
   },
 });
 

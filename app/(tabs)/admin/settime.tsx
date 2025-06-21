@@ -6,59 +6,105 @@ import {
   TextInput,
   StyleSheet,
   Alert,
+  SafeAreaView,
+  StatusBar,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { db, setDoc, doc } from "@/utils/firebaseConfig";
 import * as Location from "expo-location";
+import { Ionicons } from '@expo/vector-icons';
 import 'react-native-get-random-values';
-import { v4 as uuidv4 } from "uuid"; // For generating unique IDs
+import { v4 as uuidv4 } from "uuid";
+
+const { width } = Dimensions.get('window');
 
 const SetTimeScreen: React.FC = () => {
   const params = useLocalSearchParams();
   const { course, courseId, courseCode, year, semester } = params || {};
 
-  const [hour, setHour] = useState(""); // Hour input
-  const [minute, setMinute] = useState(""); // Minute input
-  const [amPm, setAmPm] = useState("AM"); // AM/PM selection
-  const [location, setLocation] = useState<{ lat: number; long: number } | null>(
-    null
-  );
+  const [hour, setHour] = useState("");
+  const [minute, setMinute] = useState("");
+  const [amPm, setAmPm] = useState("AM");
+  const [location, setLocation] = useState<{ lat: number; long: number } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!year || !semester) {
       Alert.alert("Error", "Missing year or semester. Please navigate correctly.");
       router.back();
     }
+    checkLocationPermission();
   }, [year, semester]);
+
+  const checkLocationPermission = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      setLocationPermission(status === 'granted');
+    } catch (error) {
+      console.error("Error checking location permission:", error);
+    }
+  };
 
   const askForLocationPermission = async () => {
     try {
+      setIsLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission Denied", "Location access was denied.");
+        Alert.alert(
+          "Permission Required", 
+          "Location access is required to set attendance location. Please enable it in settings.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Settings", onPress: () => Location.requestForegroundPermissionsAsync() }
+          ]
+        );
         return null;
       }
-      const location = await Location.getCurrentPositionAsync({});
-      return { lat: location.coords.latitude, long: location.coords.longitude };
+      
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      
+      setLocationPermission(true);
+      const coords = { lat: location.coords.latitude, long: location.coords.longitude };
+      setLocation(coords);
+      return coords;
     } catch (error) {
       console.error("Error getting location:", error);
+      Alert.alert("Location Error", "Failed to get current location. Please try again.");
       return null;
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const getISTDate = () => {
     const now = new Date();
-    const ISTOffset = 330; // IST is UTC+5:30 (5 hours and 30 minutes in minutes)
-    const currentOffset = now.getTimezoneOffset(); // Get the current timezone offset in minutes
-    const totalOffset = currentOffset + ISTOffset; // Calculate the total offset for IST
-    const ISTDate = new Date(now.getTime() + totalOffset * 60 * 1000); // Adjust the date to IST
+    const ISTOffset = 330;
+    const currentOffset = now.getTimezoneOffset();
+    const totalOffset = currentOffset + ISTOffset;
+    const ISTDate = new Date(now.getTime() + totalOffset * 60 * 1000);
 
-    // Format the IST date manually in YYYY-MM-DD format
     const year = ISTDate.getFullYear();
     const month = String(ISTDate.getMonth() + 1).padStart(2, "0");
     const day = String(ISTDate.getDate()).padStart(2, "0");
 
-    return `${year}-${month}-${day}`; // Return date in YYYY-MM-DD format
+    return `${year}-${month}-${day}`;
+  };
+
+  const getCurrentISTTime = () => {
+    const now = new Date();
+    const ISTOffset = 330;
+    const currentOffset = now.getTimezoneOffset();
+    const totalOffset = currentOffset + ISTOffset;
+    const ISTDate = new Date(now.getTime() + totalOffset * 60 * 1000);
+    
+    return ISTDate;
   };
 
   const updateDatabaseWithTime = async (classTime: string) => {
@@ -67,20 +113,21 @@ const SetTimeScreen: React.FC = () => {
       return;
     }
 
-    const fetchedLocation = await askForLocationPermission();
+    setIsLoading(true);
+    
+    let fetchedLocation = location;
     if (!fetchedLocation) {
-      Alert.alert("Error", "Failed to fetch location. Please try again.");
-      return;
+      fetchedLocation = await askForLocationPermission();
+      if (!fetchedLocation) {
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {
-      // Get today's date in IST
       const today = getISTDate();
-
-      // Generate a unique session ID
       const sessionId = uuidv4();
 
-      // Reference to the session document
       const sessionDocRef = doc(
         db,
         "years",
@@ -90,12 +137,13 @@ const SetTimeScreen: React.FC = () => {
         "courses",
         courseId as string,
         "attendance",
-        today, // Date document (IST)
-        "sessions", // Subcollection for sessions
-        sessionId // Unique session ID
+        today,
+        "sessions",
+        sessionId
       );
-      let   delT=classTime;
-      // Add additional logging for debugging
+
+      let delT = classTime;
+
       console.log("Updating session document with:", {
         sessionId,
         classTime,
@@ -106,7 +154,6 @@ const SetTimeScreen: React.FC = () => {
         date: today,
       });
 
-      // Update the session document with class time, courseId, and location
       await setDoc(sessionDocRef, {
         sessionId,
         classTime,
@@ -115,36 +162,40 @@ const SetTimeScreen: React.FC = () => {
         FIXED_LATITUDE: fetchedLocation.lat,
         FIXED_LONGITUDE: fetchedLocation.long,
         date: today,
+        createdAt: new Date().toISOString(),
       });
 
-      // Schedule clearing of classTime after 30 minutes
       setTimeout(async () => {
         try {
           await setDoc(
             sessionDocRef,
-            { classTime: "" },
+            { classTime: "", status: "expired" },
             { merge: true }
           );
           console.log("ClassTime cleared after 30 minutes.");
         } catch (error) {
           console.error("Error clearing classTime:", error);
         }
-      }, 30 * 60 * 1000); // 30 minutes
+      }, 30 * 60 * 1000);
 
       Alert.alert(
-        "Success",
-        `Class time for ${courseCode} (${course}) has been updated to ${classTime}.`
+        "Attendance Session Created",
+        `Attendance is now active for ${courseCode} - ${course} at ${classTime}.\n\nSession will expire in 30 minutes.`,
+        [
+          { text: "OK", onPress: () => router.back() }
+        ]
       );
     } catch (error) {
       console.error("Error updating class time:", error);
-      Alert.alert("Error", "Failed to update the time. Please try again later.");
+      Alert.alert("Error", "Failed to create attendance session. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const scheduleTask = async () => {
-    // Validate time input
     if (!hour || !minute || isNaN(Number(hour)) || isNaN(Number(minute))) {
-      Alert.alert("Error", "Please enter a valid time.");
+      Alert.alert("Invalid Time", "Please enter a valid time.");
       return;
     }
 
@@ -152,20 +203,26 @@ const SetTimeScreen: React.FC = () => {
     const selectedMinute = parseInt(minute, 10);
 
     if (selectedHour < 1 || selectedHour > 12 || selectedMinute < 0 || selectedMinute > 59) {
-      Alert.alert("Error", "Please enter a valid hour (1-12) and minute (0-59).");
+      Alert.alert("Invalid Time", "Please enter a valid hour (1-12) and minute (0-59).");
       return;
     }
 
-    // Convert selected time to 12-hour format
     const classTime = `${selectedHour.toString().padStart(2, "0")}:${selectedMinute
       .toString()
       .padStart(2, "0")} ${amPm}`;
 
-    updateDatabaseWithTime(classTime);
+    Alert.alert(
+      "Confirm Attendance Session",
+      `Create attendance session for ${courseCode} at ${classTime}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Create", onPress: () => updateDatabaseWithTime(classTime) }
+      ]
+    );
   };
 
   const setCurrentTime = async () => {
-    const now = new Date();
+    const now = getCurrentISTTime();
     let currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const isPM = currentHour >= 12;
@@ -173,7 +230,7 @@ const SetTimeScreen: React.FC = () => {
     if (isPM) {
       currentHour = currentHour > 12 ? currentHour - 12 : currentHour;
     } else if (currentHour === 0) {
-      currentHour = 12; // Midnight edge case
+      currentHour = 12;
     }
 
     const formattedTime = `${currentHour.toString().padStart(2, "0")}:${currentMinute
@@ -184,132 +241,408 @@ const SetTimeScreen: React.FC = () => {
     setMinute(currentMinute.toString().padStart(2, "0"));
     setAmPm(isPM ? "PM" : "AM");
 
-    // Update the database with the current time
-    await updateDatabaseWithTime(formattedTime);
+    Alert.alert(
+      "Start Attendance Now",
+      `Create attendance session for ${courseCode} at current time (${formattedTime})?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Start Now", onPress: () => updateDatabaseWithTime(formattedTime) }
+      ]
+    );
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Set Time for {course || "Unknown Course"}</Text>
+  const renderTimeInput = (value: string, onChangeText: (text: string) => void, placeholder: string, maxLength: number) => (
+    <TextInput
+      style={styles.timeInput}
+      placeholder={placeholder}
+      placeholderTextColor="#9CA3AF"
+      keyboardType="numeric"
+      maxLength={maxLength}
+      value={value}
+      onChangeText={onChangeText}
+      selectionColor="#3B82F6"
+    />
+  );
 
-      <View style={styles.timeInputContainer}>
-        <TextInput
-          style={styles.timeInput}
-          placeholder="HH"
-          keyboardType="numeric"
-          maxLength={2}
-          value={hour}
-          onChangeText={setHour}
-        />
-        <Text style={styles.colon}>:</Text>
-        <TextInput
-          style={styles.timeInput}
-          placeholder="MM"
-          keyboardType="numeric"
-          maxLength={2}
-          value={minute}
-          onChangeText={setMinute}
-        />
-        <TouchableOpacity
-          style={styles.amPmButton}
-          onPress={() => setAmPm(amPm === "AM" ? "PM" : "AM")}
-        >
-          <Text style={styles.amPmText}>{amPm}</Text>
-        </TouchableOpacity>
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#374151" />
+        </Pressable>
+        <Text style={styles.headerTitle}>Schedule Attendance</Text>
+        <View style={styles.placeholder} />
       </View>
 
-      <TouchableOpacity style={styles.currentTimeButton} onPress={setCurrentTime}>
-        <Text style={styles.currentTimeButtonText}>Set Current Time</Text>
-      </TouchableOpacity>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Course Info Card */}
+        <View style={styles.courseCard}>
+          <View style={styles.courseHeader}>
+            <Ionicons name="book-outline" size={24} color="#3B82F6" />
+            <Text style={styles.courseTitle}>Course Details</Text>
+          </View>
+          <View style={styles.courseInfo}>
+            <Text style={styles.courseCode}>{courseCode}</Text>
+            <Text style={styles.courseName}>{course || "Unknown Course"}</Text>
+          </View>
+        </View>
 
-      <TouchableOpacity style={styles.button} onPress={scheduleTask}>
-        <Text style={styles.buttonText}>Schedule Task</Text>
-      </TouchableOpacity>
+        {/* Location Status */}
+        <View style={styles.locationCard}>
+          <View style={styles.locationHeader}>
+            <Ionicons 
+              name={locationPermission ? "location" : "location-outline"} 
+              size={20} 
+              color={locationPermission ? "#10B981" : "#F59E0B"} 
+            />
+            <Text style={styles.locationTitle}>Location Status</Text>
+            {location && (
+              <View style={styles.locationBadge}>
+                <Text style={styles.locationBadgeText}>✓ Ready</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.locationText}>
+            {locationPermission 
+              ? location 
+                ? "Location captured and ready for attendance tracking."
+                : "Location permission granted. Will capture when session starts."
+              : "Location permission required for attendance verification."
+            }
+          </Text>
+        </View>
 
-      <TouchableOpacity style={styles.button} onPress={() => router.back()}>
-        <Text style={styles.buttonText}>Go Back</Text>
-      </TouchableOpacity>
-    </View>
+        {/* Time Setting Card */}
+        <View style={styles.timeCard}>
+          <View style={styles.timeHeader}>
+            <Ionicons name="time-outline" size={24} color="#3B82F6" />
+            <Text style={styles.timeTitle}>Set Attendance Time</Text>
+          </View>
+
+          <View style={styles.timeInputContainer}>
+            {renderTimeInput(hour, setHour, "HH", 2)}
+            <Text style={styles.timeSeparator}>:</Text>
+            {renderTimeInput(minute, setMinute, "MM", 2)}
+            <Pressable
+              style={[styles.amPmButton, amPm === "PM" && styles.amPmButtonActive]}
+              onPress={() => setAmPm(amPm === "AM" ? "PM" : "AM")}
+            >
+              <Text style={[styles.amPmText, amPm === "PM" && styles.amPmTextActive]}>
+                {amPm}
+              </Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.timeNote}>
+            Attendance session will be active for 30 minutes from the scheduled time.
+          </Text>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.actionContainer}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.quickActionButton,
+              pressed && styles.buttonPressed
+            ]}
+            onPress={setCurrentTime}
+            disabled={isLoading}
+          >
+            <Ionicons name="play-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.quickActionText}>Start Now</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryButton,
+              pressed && styles.buttonPressed,
+              isLoading && styles.buttonDisabled
+            ]}
+            onPress={scheduleTask}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="calendar" size={20} color="#FFFFFF" />
+            )}
+            <Text style={styles.primaryButtonText}>
+              {isLoading ? "Creating Session..." : "Schedule Session"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Info Section */}
+        <View style={styles.infoCard}>
+          <View style={styles.infoHeader}>
+            <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+            <Text style={styles.infoTitle}>Session Information</Text>
+          </View>
+          <View style={styles.infoList}>
+            <Text style={styles.infoItem}>• Students can mark attendance 15 minutes before scheduled time</Text>
+            <Text style={styles.infoItem}>• Session automatically expires after 30 minutes</Text>
+            <Text style={styles.infoItem}>• Location verification ensures students are in classroom</Text>
+            <Text style={styles.infoItem}>• Real-time attendance tracking and reports</Text>
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
+    backgroundColor: "#F8FAFC",
+  },
+  header: {
+    flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    backgroundColor: "#f5f5f5",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-    color: "#333",
+  backButton: {
+    padding: 8,
+    borderRadius: 8,
   },
-  timeInputContainer: {
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  placeholder: {
+    width: 40,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  courseCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  courseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  courseTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    marginLeft: 8,
+  },
+  courseInfo: {
+    paddingLeft: 32,
+  },
+  courseCode: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3B82F6",
+    backgroundColor: "#EBF8FF",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+    marginBottom: 8,
+  },
+  courseName: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  locationCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  locationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  locationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    marginLeft: 8,
+    flex: 1,
+  },
+  locationBadge: {
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  locationBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#065F46",
+  },
+  locationText: {
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 20,
+    paddingLeft: 28,
+  },
+  timeCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  timeHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 20,
   },
-  timeInput: {
-    width: 50,
-    height: 50,
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    textAlign: "center",
-    marginHorizontal: 5,
-    backgroundColor: "#fff",
-    fontSize: 18,
-    color: "#333",
+  timeTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    marginLeft: 8,
   },
-  colon: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
+  timeInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  timeInput: {
+    width: 60,
+    height: 60,
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    textAlign: "center",
+    marginHorizontal: 8,
+    backgroundColor: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  timeSeparator: {
+    fontSize: 32,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginHorizontal: 4,
   },
   amPmButton: {
     width: 60,
-    height: 50,
-    backgroundColor: "#007AFF",
-    borderRadius: 8,
+    height: 60,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    marginLeft: 10,
+    marginLeft: 16,
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+  },
+  amPmButtonActive: {
+    backgroundColor: "#3B82F6",
+    borderColor: "#3B82F6",
   },
   amPmText: {
-    color: "#fff",
+    color: "#6B7280",
     fontSize: 16,
     fontWeight: "600",
   },
-  currentTimeButton: {
-    width: "100%",
-    height: 50,
-    backgroundColor: "#28a745",
-    borderRadius: 8,
-    justifyContent: "center",
+  amPmTextActive: {
+    color: "#FFFFFF",
+  },
+  timeNote: {
+    fontSize: 12,
+    color: "#6B7280",
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  actionContainer: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  quickActionButton: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
-  },
-  currentTimeButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  button: {
-    width: "100%",
-    height: 50,
-    backgroundColor: "#007AFF",
-    borderRadius: 8,
     justifyContent: "center",
-    alignItems: "center",
-    marginTop: 10,
+    backgroundColor: "#10B981",
+    borderRadius: 12,
+    paddingVertical: 16,
+    gap: 8,
   },
-  buttonText: {
-    color: "#fff",
+  quickActionText: {
+    color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "600",
+  },
+  primaryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#3B82F6",
+    borderRadius: 12,
+    paddingVertical: 16,
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  buttonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  infoCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 40,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  infoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginLeft: 6,
+  },
+  infoList: {
+    gap: 8,
+  },
+  infoItem: {
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 20,
   },
 });
 

@@ -1,9 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  ActivityIndicator, 
+  StyleSheet,
+  ScrollView,
+  SafeAreaView,
+  StatusBar,
+  Animated,
+  Dimensions
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons } from '@expo/vector-icons';
 import { db, collection, getDocs, doc, updateDoc, arrayUnion, arrayRemove } from '@/utils/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocalSearchParams } from 'expo-router';
 import { getDoc } from '@/utils/firebaseConfig';
+
+const { width } = Dimensions.get('window');
 
 interface Course {
   id: string;
@@ -18,6 +33,7 @@ const StudentCourseScreen: React.FC = () => {
   const [processingCourse, setProcessingCourse] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const { user } = useAuth();
+  const fadeAnim = useState(new Animated.Value(0))[0];
 
   useEffect(() => {
     const fetchData = async () => {
@@ -26,10 +42,13 @@ const StudentCourseScreen: React.FC = () => {
         const coursesSnapshot = await getDocs(
           collection(db, `years/${year}/semesters/${semester}/courses`)
         );
-        const courseList = coursesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data() as Course
-        }));
+        const courseList = coursesSnapshot.docs.map(doc => {
+          const { id, ...data } = doc.data() as Course;
+          return {
+            id: doc.id,
+            ...data
+          };
+        });
         setCourses(courseList);
 
         // Fetch user's enrolled courses
@@ -40,6 +59,13 @@ const StudentCourseScreen: React.FC = () => {
             setEnrolledCourses(userDoc.data().enrolledCourses || []);
           }
         }
+
+        // Fade in animation
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -77,97 +103,195 @@ const StudentCourseScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#007BFF" />
-      </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar barStyle="dark-content" />
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.loadingGradient}
+        >
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.loadingText}>Loading Courses...</Text>
+        </LinearGradient>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Available Courses</Text>
-      {courses.map((course) => {
-        const isEnrolled = enrolledCourses.includes(course.name);
-        const isProcessing = processingCourse === course.name;
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <Animated.View style={{ opacity: fadeAnim }}>
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.header}
+        >
+          <Text style={styles.headerTitle}>Available Courses</Text>
+          <Text style={styles.headerSubtitle}>
+            {courses.length} courses available this semester
+          </Text>
+        </LinearGradient>
 
-        return (
-          <TouchableOpacity
-            key={course.id}
-            style={[
-              styles.courseButton,
-              isEnrolled && styles.enrolledButton,
-              isProcessing && styles.processingButton
-            ]}
-            onPress={() => handleEnrollment(course.name, isEnrolled)}
-            disabled={isProcessing}
-          >
-            {isProcessing ? (
-              <ActivityIndicator color={isEnrolled ? "#fff" : "#007BFF"} />
-            ) : (
-              <View style={styles.buttonContent}>
-                <Text style={[
-                  styles.buttonText,
-                  isEnrolled && styles.enrolledButtonText
-                ]}>
-                  {course.code} - {course.name}
-                </Text>
-                {isEnrolled && (
-                  <Text style={styles.checkmark}>✓</Text>
-                )}
-              </View>
-            )}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
+          {courses.map((course) => {
+            const isEnrolled = enrolledCourses.includes(course.name);
+            const isProcessing = processingCourse === course.name;
+
+            return (
+              <TouchableOpacity
+                key={course.id}
+                style={[
+                  styles.courseCard,
+                  isEnrolled && styles.enrolledCard,
+                  isProcessing && styles.processingCard
+                ]}
+                onPress={() => handleEnrollment(course.name, isEnrolled)}
+                disabled={isProcessing}
+                activeOpacity={0.8}
+              >
+                <View style={styles.cardContent}>
+                  <View style={styles.courseInfo}>
+                    <Text style={styles.courseCode}>{course.code}</Text>
+                    <Text style={styles.courseName}>{course.name}</Text>
+                  </View>
+                  
+                  {isProcessing ? (
+                    <ActivityIndicator 
+                      size="small" 
+                      color={isEnrolled ? "#667eea" : "#ffffff"} 
+                    />
+                  ) : (
+                    <View style={[
+                      styles.enrollButton,
+                      isEnrolled && styles.enrolledButton
+                    ]}>
+                      <Text style={[
+                        styles.enrollButtonText,
+                        isEnrolled && styles.enrolledButtonText
+                      ]}>
+                        {isEnrolled ? 'Enrolled' : 'Enroll'}
+                      </Text>
+                      {isEnrolled && (
+                        <MaterialIcons 
+                          name="check-circle" 
+                          size={20} 
+                          color="#667eea" 
+                          style={styles.checkIcon}
+                        />
+                      )}
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </Animated.View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f8fafc',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#333',
-  },
-  courseButton: {
-    backgroundColor: '#007BFF',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  enrolledButton: {
-    backgroundColor: '#6c757d',
-  },
-  processingButton: {
-    opacity: 0.7,
-  },
-  buttonContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  loadingContainer: {
     flex: 1,
   },
-  buttonText: {
-    color: 'white',
+  loadingGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    marginTop: 16,
+    fontFamily: 'Inter_500Medium',
+  },
+  header: {
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    paddingBottom: 30,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 16,
+    fontFamily: 'Inter_400Regular',
+  },
+  scrollContainer: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  courseCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  enrolledCard: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+  },
+  processingCard: {
+    opacity: 0.7,
+  },
+  cardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  courseInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  courseCode: {
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  courseName: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    color: '#64748B',
+    lineHeight: 20,
+  },
+  enrollButton: {
+    backgroundColor: '#667eea',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 90,
+    justifyContent: 'center',
+  },
+  enrolledButton: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  enrollButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
   },
   enrolledButtonText: {
-    color: '#f8f9fa',
+    color: '#667eea',
   },
-  checkmark: {
-    color: '#fff',
-    fontSize: 18,
-    marginLeft: 10,
+  checkIcon: {
+    marginLeft: 6,
   },
 });
 

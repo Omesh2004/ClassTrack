@@ -12,9 +12,15 @@ import { useLocalSearchParams } from 'expo-router'; // Import useLocalSearchPara
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
 
 import { utils } from '@react-native-firebase/app';
+type FileAsset = {
+  name: string;
+  uri: string;
+  [key: string]: any;
+};
+
 const PDFUploader = () => {
   const storage = getStorage();
-  const [file, setFile] = useState(null);
+  const [file, setFile] = useState<FileAsset | null>(null);
 
   // Fetch query parameters
   const params = useLocalSearchParams();
