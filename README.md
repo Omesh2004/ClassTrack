@@ -90,6 +90,7 @@ expo start
 ## 🤝 Contributors
 
 - 👤 [Omesh2004](https://github.com/Omesh2004)
+- 👤 [PrateekJha14](https://github.com/PrateekJha14)
 
 Want to contribute? Pull requests are welcome!
 
