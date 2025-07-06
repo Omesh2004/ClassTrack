@@ -1,7 +1,7 @@
 # 📌 Class Track
 
 <p align="center">
-  <img src="https://imgur.com/a/2HaxsIZ" alt="Class Track Logo" width="400"/>
+  <img src="assets/images/logo.png" alt="Class Track Logo" width="400"/>
 </p>
 
 ## 📖 Overview
