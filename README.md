@@ -41,24 +41,32 @@
 
 ## 🎨 UI Preview
 
-### 🔐 Login
-![Login](assets/signup.png)
-
-### 🏠 Dashboard
-## SuperAdmin
-![Dashboard](assets/dashboard1.png)
-
-## Admin
-![Dashboard](assets/dashboard2.png)
-
-## Student
-![Dashboard](assets/dashboard3.png)
-
-### 📍 Attendance Marking
-![Attendance Marking](assets/attendance.png)
-
-### 📚 Notes Section
-![Notes Section](assets/notes.png)
+<table>
+  <tr>
+    <td align="center"><b>🔐 Login</b></td>
+    <td align="center"><b>📍 Attendance</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/signup.png" width="250"/></td>
+    <td><img src="assets/attendance.png" width="250"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>📚 Notes</b></td>
+    <td align="center"><b>🏠 SuperAdmin Dashboard</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/notes.png" width="250"/></td>
+    <td><img src="assets/dashboard1.png" width="250"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>🏠 Admin Dashboard</b></td>
+    <td align="center"><b>🏠 Student Dashboard</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/dashboard2.png" width="250"/></td>
+    <td><img src="assets/dashboard3.png" width="250"/></td>
+  </tr>
+</table>
 
 ---
 
@@ -79,14 +87,10 @@ cd class-track
 # 2. Install dependencies
 npm install
 
-```bash
 # 3. Run the app
 expo start
 ```
 
----
-
-<!-- ## 🎥 Demo Video -->
 
 ## 🎥 Demo Video
 
