@@ -42,16 +42,23 @@
 ## 🎨 UI Preview
 
 ### 🔐 Login
-![Login](link-to-login-image)
+![Login](assets/signup.png)
 
 ### 🏠 Dashboard
-![Dashboard](link-to-dashboard-image)
+## SuperAdmin
+![Dashboard](assets/dashboard1.png)
+
+## Admin
+![Dashboard](assets/dashboard2.png)
+
+## Student
+![Dashboard](assets/dashboard3.png)
 
 ### 📍 Attendance Marking
-![Attendance Marking](link-to-attendance-marking-image)
+![Attendance Marking](assets/attendance.png)
 
 ### 📚 Notes Section
-![Notes Section](https://imgur.com/a/2HaxsIZ)
+![Notes Section](assets/notes.png)
 
 ---
 
